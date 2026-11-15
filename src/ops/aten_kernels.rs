@@ -3390,12 +3390,29 @@ pub(crate) fn k_corrcoef(t: &Tensor) -> Result<Tensor, EvalError> {
     }
 }
 
-/// `to.dtype` — dtype cast. The wire is f64-dense, so float64-family
-/// requests (`"float64"`/`"double"`/`"f64"`) are the identity; every
-/// other dtype name errors loudly rather than silently degrading
-/// precision. A tensor rhs (`aten::to.other`-style) is a same-dtype
-/// copy → clone. `non_blocking`/`copy`/`memory_format` are accepted and
-/// ignored (immutable wire — a fresh encoded tensor is always returned).
+/// `to.dtype` — dtype cast. The wire/storage repr is f64-dense, so a
+/// cast is honest exactly when the target's values are representable
+/// as f64:
+///
+/// * `float64`-family (`"float64"`/`"double"`/`"f64"`) → identity;
+/// * `"float32"`/`"f32"` → each element rounded through `f32` and
+///   widened back (`x as f32 as f64`) — the same convention
+///   `tensor.load` uses ingesting an F32 sidecar, so the stored
+///   values are exactly what an f32 tensor holds (overflow → ±inf,
+///   NaN → NaN, matching torch);
+/// * the integer family (`int64`/`int32`/`int16`/`int8`/`uint8` +
+///   `iN`/`long` aliases) → truncation toward zero, range-checked —
+///   every in-range result is an integer f64 holds exactly;
+/// * `"bool"` → nonzero → `1.0` (NaN counts as nonzero, matching
+///   torch/ONNX "non-zero → true").
+///
+/// A non-finite or out-of-range element under an integer cast fails
+/// the whole op with a named error (count + first offender) rather
+/// than wrapping silently. `float16`/`bfloat16`/`float8_*` stay
+/// declined — they need a rounding mode this surface does not define.
+/// A tensor rhs (`aten::to.other`-style) is a same-dtype copy → clone.
+/// `non_blocking`/`copy`/`memory_format` are accepted and ignored
+/// (immutable wire — a fresh encoded tensor is always returned).
 pub(crate) fn k_to(args: &[serde_json::Value]) -> Result<serde_json::Value, EvalError> {
     use super::codec::require_tensor;
     let t = require_tensor(args, 0)?;
@@ -3403,19 +3420,93 @@ pub(crate) fn k_to(args: &[serde_json::Value]) -> Result<serde_json::Value, Eval
         .get(1)
         .ok_or_else(|| op_err("to", "missing dtype argument"))?;
     match spec {
-        Value::String(s) => match s.to_ascii_lowercase().as_str() {
-            "float64" | "double" | "f64" => Ok(enc(t)),
-            other => Err(op_err(
-                "to",
-                format!("unsupported dtype {other:?} — the surface is f64 dense"),
-            )),
-        },
+        Value::String(s) => {
+            // Normalise "torch.float32"-style spellings to the short name.
+            let lower = s.to_ascii_lowercase();
+            let name = lower.rsplit('.').next().unwrap_or(lower.as_str());
+            match name {
+                "float64" | "double" | "f64" => Ok(enc(t)),
+                "float32" | "f32" => Ok(enc(Tensor {
+                    shape: t.shape.clone(),
+                    data: t.data.iter().map(|&x| x as f32 as f64).collect(),
+                })),
+                "bool" => Ok(enc(Tensor {
+                    shape: t.shape.clone(),
+                    data: t
+                        .data
+                        .iter()
+                        .map(|&x| if x != 0.0 { 1.0 } else { 0.0 })
+                        .collect(),
+                })),
+                n => match int_cast_range(n) {
+                    Some((lo, hi)) => cast_ints(&t, lo, hi, n).map(enc),
+                    None => Err(op_err(
+                        "to",
+                        format!(
+                            "unsupported dtype {name:?} — f64-dense surface accepts \
+                             float64/float32/int64/int32/int16/int8/uint8/bool"
+                        ),
+                    )),
+                },
+            }
+        }
         v if v.get("__tensor__").is_some() => Ok(enc(t)),
         _ => Err(op_err(
             "to",
             "dtype must be a string (e.g. \"float64\") or a tensor",
         )),
     }
+}
+
+/// Inclusive-`lo` / exclusive-`hi` f64 bounds for the integer dtypes
+/// `to` can honour on the f64-dense wire. Truncated results are
+/// integral, so an exclusive hi at the power-of-two boundary is the
+/// exact range (e.g. int64 admits `-2^63` but not `2^63`, the largest
+/// in-range f64 being `2^63 - 1024`).
+fn int_cast_range(name: &str) -> Option<(f64, f64)> {
+    Some(match name {
+        "int64" | "i64" | "long" => (-9.223372036854776e18, 9.223372036854776e18),
+        "int32" | "i32" => (-2147483648.0, 2147483648.0),
+        "int16" | "i16" => (-32768.0, 32768.0),
+        "int8" | "i8" => (-128.0, 128.0),
+        "uint8" | "u8" => (0.0, 256.0),
+        _ => return None,
+    })
+}
+
+/// Truncate-toward-zero cast into the integer range `[lo, hi)`, stored
+/// as integral f64. Any non-finite or out-of-range element fails the
+/// whole cast with a named error (count + first offender) rather than
+/// wrapping silently.
+fn cast_ints(t: &Tensor, lo: f64, hi: f64, dtype: &str) -> Result<Tensor, EvalError> {
+    let mut count = 0usize;
+    let mut first: Option<(usize, f64)> = None;
+    let mut data = Vec::with_capacity(t.data.len());
+    for (i, &x) in t.data.iter().enumerate() {
+        let r = x.trunc();
+        if !x.is_finite() || r < lo || r >= hi {
+            count += 1;
+            if first.is_none() {
+                first = Some((i, x));
+            }
+            data.push(f64::NAN); // placeholder — the error below discards it
+        } else {
+            data.push(r);
+        }
+    }
+    if let Some((i, x)) = first {
+        return Err(op_err(
+            "to",
+            format!(
+                "cannot cast to {dtype:?}: {count} element(s) non-finite or outside \
+                 [{lo}, {hi}) — first at flat index {i} (value {x})"
+            ),
+        ));
+    }
+    Ok(Tensor {
+        shape: t.shape.clone(),
+        data,
+    })
 }
 
 /// Take position `pos` along axis `d`, dropping the axis; `keepdim`
@@ -4816,12 +4907,96 @@ mod tests {
         assert_eq!(decode_tensor(&out).unwrap().data, vec![1.0, 2.0]);
         let out = k_to(&[encode_tensor(a.clone()), json!("double")]).unwrap();
         assert_eq!(decode_tensor(&out).unwrap().data, vec![1.0, 2.0]);
-        // Other dtypes error loudly.
-        assert!(k_to(&[encode_tensor(a.clone()), json!("float32")]).is_err());
-        assert!(k_to(&[encode_tensor(a.clone()), json!("int64")]).is_err());
         // Tensor rhs → same-dtype copy.
         let out = k_to(&[encode_tensor(a.clone()), encode_tensor(t(&[2], &[9.0, 9.0]))]).unwrap();
         assert_eq!(decode_tensor(&out).unwrap().data, vec![1.0, 2.0]);
+    }
+
+    #[test]
+    fn to_float32_rounds_through_f32() {
+        // 0.1 is not f32-exact: the stored value is the f64-widened
+        // f32 — the same convention `tensor.load` F32 ingest uses.
+        let a = t(&[3], &[0.1, 1.0 / 3.0, 1e300]);
+        let out = k_to(&[encode_tensor(a), json!("float32")]).unwrap();
+        let r = decode_tensor(&out).unwrap();
+        assert_eq!(r.shape, vec![3]);
+        assert_eq!(r.data[0], 0.1f32 as f64);
+        assert_eq!(r.data[1], (1.0f32 / 3.0) as f64);
+        assert_eq!(r.data[2], f32::INFINITY as f64); // f32 overflow → inf
+        // Aliases + module-prefixed spellings land the same arm.
+        let a = t(&[1], &[0.1]);
+        for name in ["f32", "torch.float32", "Float32"] {
+            let out = k_to(&[encode_tensor(a.clone()), json!(name)]).unwrap();
+            assert_eq!(decode_tensor(&out).unwrap().data, vec![0.1f32 as f64]);
+        }
+        // f32-valued input is a fixed point.
+        let f = t(&[1], &[0.5f32 as f64]);
+        let out = k_to(&[encode_tensor(f), json!("float32")]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![0.5]);
+    }
+
+    #[test]
+    fn to_int_truncates_toward_zero() {
+        let a = t(&[4], &[2.9, -2.9, 0.5, -0.5]);
+        let out = k_to(&[encode_tensor(a.clone()), json!("int64")]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![2.0, -2.0, 0.0, -0.0]);
+        let out = k_to(&[encode_tensor(a.clone()), json!("long")]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![2.0, -2.0, 0.0, -0.0]);
+        // Narrower integer widths share the machinery.
+        let out = k_to(&[encode_tensor(a.clone()), json!("int32")]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![2.0, -2.0, 0.0, -0.0]);
+        // uint8 admits only [0, 256): negatives and ≥256 decline.
+        let u = t(&[3], &[2.9, 0.5, 255.9]);
+        let out = k_to(&[encode_tensor(u), json!("uint8")]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![2.0, 0.0, 255.0]);
+        let neg = t(&[1], &[-0.5]);
+        assert!(k_to(&[encode_tensor(neg), json!("uint8")]).is_ok()); // -0.0 == 0
+        let over = t(&[1], &[256.0]);
+        assert!(k_to(&[encode_tensor(over), json!("uint8")]).is_err());
+    }
+
+    #[test]
+    fn to_int_range_and_finite_gates() {
+        // int64 admits -2^63 (i64::MIN, exactly representable) and the
+        // largest f64 below 2^63, but not 2^63 itself.
+        let lo = t(&[1], &[-9.223372036854776e18]);
+        let out = k_to(&[encode_tensor(lo), json!("int64")]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![-9.223372036854776e18]);
+        let hi_ok = t(&[1], &[9.223372036854776e18 - 1024.0]);
+        assert!(k_to(&[encode_tensor(hi_ok), json!("int64")]).is_ok());
+        let hi_bad = t(&[1], &[9.223372036854776e18]);
+        let err = k_to(&[encode_tensor(hi_bad), json!("int64")]).unwrap_err();
+        assert!(format!("{err}").contains("int64"), "{err}");
+        // Narrow ranges decline too: 300.0 fits int64/int16, not uint8.
+        let v = t(&[1], &[300.0]);
+        assert!(k_to(&[encode_tensor(v.clone()), json!("uint8")]).is_err());
+        assert!(k_to(&[encode_tensor(v), json!("int16")]).is_ok());
+        // Non-finite elements decline the whole cast, count + index named.
+        for tag in ["nan", "inf", "-inf"] {
+            let wire = json!({"__tensor__": {"shape": [2], "data": [1.0, {"__nonfinite__": tag}]}});
+            let err = k_to(&[wire, json!("int32")]).unwrap_err();
+            let msg = format!("{err}");
+            assert!(msg.contains("1 element"), "{msg}");
+            assert!(msg.contains("index 1"), "{msg}");
+        }
+        // float16/bfloat16/float8 stay declined by name.
+        for name in ["float16", "bfloat16", "float8_e4m3fn", "int"] {
+            let a = t(&[1], &[1.0]);
+            let err = k_to(&[encode_tensor(a), json!(name)]).unwrap_err();
+            assert!(format!("{err}").contains("unsupported dtype"), "{name}: {err}");
+        }
+    }
+
+    #[test]
+    fn to_bool_nonzero() {
+        let a = t(&[4], &[0.0, 1.5, -2.0, 0.0]);
+        let out = k_to(&[encode_tensor(a), json!("bool")]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![0.0, 1.0, 1.0, 0.0]);
+        // NaN is nonzero → true (torch/ONNX semantics); rides the
+        // __nonfinite__ wire tag.
+        let wire = json!({"__tensor__": {"shape": [1], "data": [{"__nonfinite__": "nan"}]}});
+        let out = k_to(&[wire, json!("bool")]).unwrap();
+        assert_eq!(decode_tensor(&out).unwrap().data, vec![1.0]);
     }
 
     #[test]

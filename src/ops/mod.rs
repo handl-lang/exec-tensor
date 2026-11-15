@@ -771,18 +771,22 @@ mod tests {
         .unwrap();
         assert_eq!(out, tensor(&[2, 2], &[58.0, 64.0, 139.0, 154.0]));
 
-        // `to` — f64 dtype is the identity; float32 must fail loudly.
+        // `to` — f64 dtype is the identity; float32 narrows through f32.
         let out = call_fn(
             &aten_generated::To,
             &[tensor(&[2], &[1.0, 2.0]), json!("float64")],
         )
         .unwrap();
         assert_eq!(out, tensor(&[2], &[1.0, 2.0]));
-        assert!(call_fn(
+        let out = call_fn(
             &aten_generated::To,
-            &[tensor(&[2], &[1.0, 2.0]), json!("float32")],
+            &[tensor(&[2], &[0.1, 2.0]), json!("float32")],
         )
-        .is_err());
+        .unwrap();
+        assert_eq!(
+            codec::decode_tensor(&out).unwrap().data,
+            vec![0.1f32 as f64, 2.0]
+        );
 
         // `meshgrid` → JSON array of wire tensors.
         let out = call_fn(

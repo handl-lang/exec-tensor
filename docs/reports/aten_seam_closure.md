@@ -44,7 +44,7 @@ whether to honor or reject them, e.g. `searchsorted`'s `sorter`,
 | `bincount` | `aten::bincount` | `k_bincount` | non-negative integer inputs only (loud error otherwise), optional `weights`, `minlength`; index >1e8 rejected. |
 | `meshgrid` | `aten::meshgrid` | `k_meshgrid` | ij indexing, rank-1 inputs only → `Tensor[]` JSON array; N-D broadcasting inputs rejected loudly. |
 | `corrcoef` | `aten::corrcoef` | `k_corrcoef` | rowvar semantics; rank-1 → rank-0 (1.0 or NaN), rank-2 → m×m correlation, constant rows → NaN. |
-| `to` | `aten::to.dtype` | `k_to` (raw) | `"float64"`/`"double"`/`"f64"` → identity; tensor rhs (`to.other`-style) → same-dtype copy; every other dtype string errors loudly. `non_blocking`/`copy`/`memory_format` accepted+ignored (immutable wire always returns a fresh tensor). |
+| `to` | `aten::to.dtype` | `k_to` (raw) | `"float64"`/`"double"`/`"f64"` → identity; `"float32"`/`"f32"` → round-through-f32 widened back to f64 (the `tensor.load` F32 convention); `int64`/`int32`/`int16`/`int8`/`uint8` (+`iN`/`long` aliases) → trunc toward zero, range-checked (non-finite/out-of-range → named error); `"bool"` → nonzero → 1.0; `float16`/`bfloat16`/`float8_*` still error loudly. Tensor rhs (`to.other`-style) → same-dtype copy. `non_blocking`/`copy`/`memory_format` accepted+ignored (immutable wire always returns a fresh tensor). |
 
 ## Promotions (12) — trivial coverage by existing kernels
 
@@ -100,8 +100,12 @@ generator's existing variant filter — the wire model is immutable.
   semantics, no `opt_einsum` path optimization (`path` arg ignored).
 - `median.dim`'s *unstable* tie behavior and `mode`'s tie-break are
   documented choices, not bit-exact torch guarantees.
-- `to` is f64-identity only by construction; the codec cannot represent
-  other dtypes, so non-f64 requests error rather than silently degrade.
+- `to` casts are value-level honest under the f64-dense codec: the
+  stored dtype tag stays `"f64"`, but `float32` results carry exactly
+  the f64-widened f32 values (same convention as `tensor.load` F32
+  ingest) and integer casts store exact integral f64s. Dtypes whose
+  values f64 cannot represent (`float16`/`bfloat16`/`float8_*`) still
+  error rather than silently degrade.
 - `cdist` rank-3 requires equal batch dims (torch broadcasts them).
 - `searchsorted` ignores `out_int32` (indices are always f64 on the
   wire) and rejects `sorter`.
