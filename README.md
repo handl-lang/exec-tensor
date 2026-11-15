@@ -4,7 +4,12 @@ Host-side tensor functions for handl runtimes — a dense n-d `f64` array
 (row-major) behind the `tensor.*` op surface. Runtimes compose this
 component to give `.hnl` code tensor ops; catopt is the first consumer.
 
-The surface (31 FFI atoms, `src/index.hnl` is the single source of truth):
+The surface (238 `tensor.*` ops declared in `src/index.hnl` — the single
+source of truth): a 31-op handwritten core (construction, projection,
+elementwise algebra, `matmul`/`linear`, NCHW conv/pool/norm, shape ops,
+and their `*_backward` adjoints) plus a ~200-op generated ATen catalog
+(`src/ops/aten_generated.rs` + `aten_kernels.rs`) with a few declared
+seams that fail loudly. The core ops:
 
 | op | signature | semantics |
 |---|---|---|
