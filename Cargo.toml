@@ -34,6 +34,7 @@ python = ["dep:pyo3"]
 
 [dev-dependencies]
 handl-plugin-module = { git = "https://github.com/handl-lang/host", branch = "main" }
+serde_yaml = "0.9"
 # Engine round-trip test (`tests/engine_roundtrip.rs`): run a `.hnl` program
 # through the real `lex → parse → eval` pipeline so `tensor.*` host results
 # decode to `TaggedValue::Tensor` inside the engine — not just across the
