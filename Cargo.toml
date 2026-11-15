@@ -6,6 +6,13 @@ description = "Host-side tensor functions for handl runtimes — an n-d dense ar
 license = "MIT"
 repository = "https://github.com/handl-lang/host-tensor"
 
+[lib]
+name = "handl_host_tensor"
+# rlib for Rust consumers; cdylib carries the optional PyO3 binding
+# (`--features python`, see src/python.rs) that mlopt's HostTensorSink
+# loads as the `handl_host_tensor` extension module.
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
 # ADR-0128 §Resolution: platform + lib-ops come from the sibling checkouts for
 # local development (see the `[patch]` tables); CI resolves the git sources.
@@ -13,6 +20,15 @@ handl-platform = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-lib-handl = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-lib-ops = { git = "https://github.com/handl-lang/kernel", branch = "main" }
 serde_json = "1"
+pyo3 = { version = "0.26", optional = true }
+
+[features]
+# Python binding: `cargo build --features python` emits
+# `libhandl_host_tensor.so` (rename to `handl_host_tensor.so` to import).
+# Deliberately NOT `pyo3/extension-module`: that mode leaves Py_*
+# symbols unresolved for dlopen on this toolchain; linking libpython
+# keeps the .so self-contained (libpython3.13.so is present).
+python = ["dep:pyo3"]
 
 [dev-dependencies]
 handl-plugin-module = { git = "https://github.com/handl-lang/host", branch = "main" }

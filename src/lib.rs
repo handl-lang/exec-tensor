@@ -24,5 +24,7 @@
 pub const TENSOR_HNL: &str = include_str!("index.hnl");
 
 pub mod ops;
+#[cfg(feature = "python")]
+pub mod python;
 
 pub use ops::{TENSOR_OPS, tensor_op_registry};
