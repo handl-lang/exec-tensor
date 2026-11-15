@@ -4,7 +4,10 @@
 //! Build with `cargo build --features python`; the cdylib artifact
 //! (`target/<profile>/libhandl_host_tensor.so`) imports as the
 //! `handl_host_tensor` extension module once renamed
-//! (`handl_host_tensor.so`).  The surface is deliberately thin — the
+//! (`handl_host_tensor.so`).  The installable path is maturin —
+//! `maturin build` (see `pyproject.toml`) produces a wheel whose
+//! `handl_host_tensor` package wraps this module, built with
+//! `pyo3/extension-module`.  The surface is deliberately thin — the
 //! `Function` contract is already JSON-in/JSON-out, so the binding is
 //! two functions:
 //!

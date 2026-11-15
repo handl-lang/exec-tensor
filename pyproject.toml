@@ -1,0 +1,20 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "handl-host-tensor"
+version = "0.1.0"
+description = "Host-side tensor functions for handl runtimes — the `tensor.*` op surface behind the `handl_host_tensor` PyO3 extension module."
+requires-python = ">=3.11"
+license = "MIT"
+
+[tool.maturin]
+# The cdylib IS the module: `handl_host_tensor.so` at the top level of
+# site-packages, exposing `ops()` and `call(op, args_json)` (see
+# src/python.rs).  `pyo3/extension-module` leaves Py_* symbols for the
+# interpreter to resolve — no libpython link, the normal extension-module
+# contract (same as mlopt-native).  `python` stays the cargo-side feature
+# name so `cargo build --features python` keeps working unchanged.
+bindings = "pyo3"
+features = ["python", "pyo3/extension-module"]

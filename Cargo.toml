@@ -25,9 +25,11 @@ pyo3 = { version = "0.26", optional = true }
 [features]
 # Python binding: `cargo build --features python` emits
 # `libhandl_host_tensor.so` (rename to `handl_host_tensor.so` to import).
-# Deliberately NOT `pyo3/extension-module`: that mode leaves Py_*
-# symbols unresolved for dlopen on this toolchain; linking libpython
-# keeps the .so self-contained (libpython3.13.so is present).
+# Deliberately NOT `pyo3/extension-module` here: without it the cdylib
+# links libpython and stays self-contained for non-Python dlopen.  The
+# maturin wheel (pyproject.toml `[tool.maturin] features`) adds
+# `pyo3/extension-module` — the normal extension-module contract, no
+# libpython link — which is what `pip install` consumers get.
 python = ["dep:pyo3"]
 
 [dev-dependencies]
