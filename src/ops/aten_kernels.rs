@@ -659,18 +659,217 @@ pub(crate) fn softmax_dim(t: &Tensor, dim: i64, log: bool, op: &str) -> Result<T
 // Unary kernels
 // ---------------------------------------------------------------------------
 
-fn erf_approx(x: f64) -> f64 {
-    // Abramowitz–Stegun 7.1.26 (|ε| ≤ 1.5e-7).
-    let sign = if x < 0.0 { -1.0 } else { 1.0 };
-    let x = x.abs();
-    let t = 1.0 / (1.0 + 0.3275911 * x);
-    let y = 1.0
-        - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t
-            + 0.254829592)
-            * t
-            * (-x * x).exp();
-    sign * y
+// ---------------------------------------------------------------------------
+// erf/erfc — fdlibm port (Sun `e_erf.c`, public domain; also shipped by musl)
+// ---------------------------------------------------------------------------
+//
+// Piecewise rational approximations on |x| < 0.84375, [0.84375, 1.25],
+// [1.25, 1/0.35), [1/0.35, 28] plus an erfc asymptotic tail; error ≤ ~1 ulp
+// everywhere (the C comments bound each P/Q to 2^-59..2^-62).  `erfc` is
+// computed directly — never as `1 - erf` — so small-x and large-negative-x
+// results keep full precision (torch semantics: erfc(-inf)=2, erfc(inf)=0).
+// Measured max |Δ| vs glibc `erf`/`erfc` (correctly rounded since 2.28) over a
+// dense sweep of [-30, 30] plus edge cases: 1.1e-16 (erf), 2.2e-16 (erfc)
+// — i.e. ≤ 2 ulp; see the `erf_erfc_*` tests below.
+
+mod fdlibm {
+    //! The fdlibm `erf`/`erfc` port — coefficients verbatim from Sun
+    //! `e_erf.c` (public domain), hence the 21-digit literals.
+    #![allow(clippy::excessive_precision)]
+
+    const ERF_ERX: f64 = 8.45062911510467529297e-01;
+    // Coefficients for approximation to erf on [0, 0.84375].
+    const ERF_EFX8: f64 = 1.02703333676410069053e+00;
+    const ERF_PP0: f64 = 1.28379167095512558561e-01;
+    const ERF_PP1: f64 = -3.25042107247001499370e-01;
+    const ERF_PP2: f64 = -2.84817495755985104766e-02;
+    const ERF_PP3: f64 = -5.77027029648944159157e-03;
+    const ERF_PP4: f64 = -2.37630166566501626084e-05;
+    const ERF_QQ1: f64 = 3.97917223959155352819e-01;
+    const ERF_QQ2: f64 = 6.50222499887672944485e-02;
+    const ERF_QQ3: f64 = 5.08130628187576562776e-03;
+    const ERF_QQ4: f64 = 1.32494738004321644526e-04;
+    const ERF_QQ5: f64 = -3.96022827877536812320e-06;
+    // Coefficients for approximation to erf in [0.84375, 1.25].
+    const ERF_PA0: f64 = -2.36211856075265944077e-03;
+    const ERF_PA1: f64 = 4.14856118683748331666e-01;
+    const ERF_PA2: f64 = -3.72207876035701323847e-01;
+    const ERF_PA3: f64 = 3.18346619901161753674e-01;
+    const ERF_PA4: f64 = -1.10894694282396677476e-01;
+    const ERF_PA5: f64 = 3.54783043256182359371e-02;
+    const ERF_PA6: f64 = -2.16637559486879084300e-03;
+    const ERF_QA1: f64 = 1.06420880400844228286e-01;
+    const ERF_QA2: f64 = 5.40397917702171048937e-01;
+    const ERF_QA3: f64 = 7.18286544141962662868e-02;
+    const ERF_QA4: f64 = 1.26171219808761642112e-01;
+    const ERF_QA5: f64 = 1.36370839120290507362e-02;
+    const ERF_QA6: f64 = 1.19844998467991074170e-02;
+    // Coefficients for approximation to erfc in [1.25, 1/0.35].
+    const ERF_RA0: f64 = -9.86494403484714822705e-03;
+    const ERF_RA1: f64 = -6.93858572707181764372e-01;
+    const ERF_RA2: f64 = -1.05586262253232909814e+01;
+    const ERF_RA3: f64 = -6.23753324503260060396e+01;
+    const ERF_RA4: f64 = -1.62396669462573470355e+02;
+    const ERF_RA5: f64 = -1.84605092906711035994e+02;
+    const ERF_RA6: f64 = -8.12874355063065934246e+01;
+    const ERF_RA7: f64 = -9.81432934416914548592e+00;
+    const ERF_SA1: f64 = 1.96512716674392571292e+01;
+    const ERF_SA2: f64 = 1.37657754143519042600e+02;
+    const ERF_SA3: f64 = 4.34565877475229228821e+02;
+    const ERF_SA4: f64 = 6.45387271733267880336e+02;
+    const ERF_SA5: f64 = 4.29008140027567833386e+02;
+    const ERF_SA6: f64 = 1.08635005541779435134e+02;
+    const ERF_SA7: f64 = 6.57024977031928170135e+00;
+    const ERF_SA8: f64 = -6.04244152148580987438e-02;
+    // Coefficients for approximation to erfc in [1/0.35, 28].
+    const ERF_RB0: f64 = -9.86494292470009928597e-03;
+    const ERF_RB1: f64 = -7.99283237680523006574e-01;
+    const ERF_RB2: f64 = -1.77579549177547519889e+01;
+    const ERF_RB3: f64 = -1.60636384855821916062e+02;
+    const ERF_RB4: f64 = -6.37566443368389627722e+02;
+    const ERF_RB5: f64 = -1.02509513161107724954e+03;
+    const ERF_RB6: f64 = -4.83519191608651397019e+02;
+    const ERF_SB1: f64 = 3.03380607434824582924e+01;
+    const ERF_SB2: f64 = 3.25792512996573918826e+02;
+    const ERF_SB3: f64 = 1.53672958608443695994e+03;
+    const ERF_SB4: f64 = 3.19985821950859553908e+03;
+    const ERF_SB5: f64 = 2.55305040643316442583e+03;
+    const ERF_SB6: f64 = 4.74528541206955367215e+02;
+    const ERF_SB7: f64 = -2.24409524465858183362e+01;
+
+    /// `ix` is the high word of |x| (`(bits >> 32) & 0x7fffffff`).
+    #[inline]
+    fn erf_ix(x: f64) -> (u32, bool) {
+        let bits = x.to_bits();
+        (((bits >> 32) & 0x7fff_ffff) as u32, bits >> 63 != 0)
+    }
+
+    /// erfc on |x| in [0.84375, 1.25) via the Taylor-at-1 rational form.
+    fn erfc1(x: f64) -> f64 {
+        let s = x.abs() - 1.0;
+        let p = ERF_PA0
+            + s * (ERF_PA1
+                + s * (ERF_PA2 + s * (ERF_PA3 + s * (ERF_PA4 + s * (ERF_PA5 + s * ERF_PA6)))));
+        let q = 1.0
+            + s * (ERF_QA1
+                + s * (ERF_QA2 + s * (ERF_QA3 + s * (ERF_QA4 + s * (ERF_QA5 + s * ERF_QA6)))));
+        1.0 - ERF_ERX - p / q
+    }
+
+    /// erfc on |x| in [0.84375, 28); `ix` must be |x|'s masked high word.
+    fn erfc2(ix: u32, x: f64) -> f64 {
+        if ix < 0x3ff4_0000 {
+            // |x| < 1.25
+            return erfc1(x);
+        }
+        let x = x.abs();
+        let s = 1.0 / (x * x);
+        let (r, q) = if ix < 0x4006_db6d {
+            // |x| < 1/0.35 ~ 2.85714
+            let r = ERF_RA0
+                + s * (ERF_RA1
+                    + s * (ERF_RA2
+                        + s * (ERF_RA3
+                            + s * (ERF_RA4 + s * (ERF_RA5 + s * (ERF_RA6 + s * ERF_RA7))))));
+            let q = 1.0
+                + s * (ERF_SA1
+                    + s * (ERF_SA2
+                        + s * (ERF_SA3
+                            + s * (ERF_SA4
+                                + s * (ERF_SA5 + s * (ERF_SA6 + s * (ERF_SA7 + s * ERF_SA8)))))));
+            (r, q)
+        } else {
+            // |x| >= 1/0.35
+            let r = ERF_RB0
+                + s * (ERF_RB1
+                    + s * (ERF_RB2 + s * (ERF_RB3 + s * (ERF_RB4 + s * (ERF_RB5 + s * ERF_RB6)))));
+            let q = 1.0
+                + s * (ERF_SB1
+                    + s * (ERF_SB2
+                        + s * (ERF_SB3
+                            + s * (ERF_SB4 + s * (ERF_SB5 + s * (ERF_SB6 + s * ERF_SB7))))));
+            (r, q)
+        };
+        // Split x into a pseudo-single-precision z plus residual so that
+        // -x*x = -z*z + (z-x)*(z+x) avoids cancellation (fdlibm note 1).
+        let z = f64::from_bits(x.to_bits() & 0xffff_ffff_0000_0000);
+        (-z * z - 0.5625).exp() * ((z - x) * (z + x) + r / q).exp() / x
+    }
+
+    /// fdlibm `erf` — error ≤ ~1 ulp, matching glibc/torch to ~1e-16.
+    pub(super) fn erf(x: f64) -> f64 {
+        let (ix, sign) = erf_ix(x);
+        if ix >= 0x7ff0_0000 {
+            // erf(nan)=nan, erf(±inf)=±1
+            let base = if sign { -1.0 } else { 1.0 };
+            return base + 1.0 / x;
+        }
+        if ix < 0x3feb_0000 {
+            // |x| < 0.84375
+            if ix < 0x3e30_0000 {
+                // |x| < 2^-28 — avoid underflow in x*x.
+                return 0.125 * (8.0 * x + ERF_EFX8 * x);
+            }
+            let z = x * x;
+            let r = ERF_PP0 + z * (ERF_PP1 + z * (ERF_PP2 + z * (ERF_PP3 + z * ERF_PP4)));
+            let s =
+                1.0 + z * (ERF_QQ1 + z * (ERF_QQ2 + z * (ERF_QQ3 + z * (ERF_QQ4 + z * ERF_QQ5))));
+            return x + x * (r / s);
+        }
+        let y = if ix < 0x4018_0000 {
+            // 0.84375 <= |x| < 6
+            1.0 - erfc2(ix, x)
+        } else {
+            1.0 - f64::MIN_POSITIVE
+        };
+        if sign { -y } else { y }
+    }
+
+    /// fdlibm `erfc` — computed directly so near-zero results keep precision
+    /// (`erfc(x) = 1 - erf(x)` would catastrophically cancel for small x).
+    pub(super) fn erfc(x: f64) -> f64 {
+        let (ix, sign) = erf_ix(x);
+        if ix >= 0x7ff0_0000 {
+            // erfc(nan)=nan, erfc(+inf)=0, erfc(-inf)=2
+            let base = if sign { 2.0 } else { 0.0 };
+            return base + 1.0 / x;
+        }
+        if ix < 0x3feb_0000 {
+            // |x| < 0.84375
+            if ix < 0x3c70_0000 {
+                // |x| < 2^-56
+                return 1.0 - x;
+            }
+            let z = x * x;
+            let r = ERF_PP0 + z * (ERF_PP1 + z * (ERF_PP2 + z * (ERF_PP3 + z * ERF_PP4)));
+            let s =
+                1.0 + z * (ERF_QQ1 + z * (ERF_QQ2 + z * (ERF_QQ3 + z * (ERF_QQ4 + z * ERF_QQ5))));
+            let y = r / s;
+            if sign || ix < 0x3fd0_0000 {
+                // x < 1/4 (or negative): direct form
+                return 1.0 - (x + x * y);
+            }
+            // x in [0.25, 0.84375): split for precision
+            return 0.5 - (x - 0.5 + x * y);
+        }
+        if ix < 0x403c_0000 {
+            // 0.84375 <= |x| < 28
+            return if sign {
+                2.0 - erfc2(ix, x)
+            } else {
+                erfc2(ix, x)
+            };
+        }
+        // |x| >= 28
+        if sign {
+            2.0 - f64::MIN_POSITIVE
+        } else {
+            f64::MIN_POSITIVE * f64::MIN_POSITIVE
+        }
+    }
 }
+
+use fdlibm::{erf, erfc};
 
 macro_rules! unary_op {
     ($name:ident, $f:expr) => {
@@ -722,7 +921,11 @@ unary_op!(k_sign, |x| {
 unary_op!(k_sigmoid, |x| 1.0 / (1.0 + (-x).exp()));
 unary_op!(k_silu, |x| x / (1.0 + (-x).exp()));
 unary_op!(k_mish, |x| x * f64::tanh(f64::ln_1p(x.exp())));
-unary_op!(k_gelu, |x| 0.5 * x * (1.0 + erf_approx(x / std::f64::consts::SQRT_2)));
+/// exact-erf gelu: `0.5·x·(1 + erf(x/√2))`.
+fn gelu_exact(x: f64) -> f64 {
+    0.5 * x * (1.0 + erf(x / std::f64::consts::SQRT_2))
+}
+unary_op!(k_gelu, gelu_exact);
 /// `gelu(approximate="tanh")` — the tanh surrogate; `"none"`/absent is
 /// the exact erf form above.
 pub(crate) fn k_gelu_tanh(t: &Tensor) -> Result<Tensor, EvalError> {
@@ -745,8 +948,8 @@ unary_op!(k_hardsigmoid, |x| (x + 3.0).clamp(0.0, 6.0) / 6.0);
 unary_op!(k_softsign, |x| x / (1.0 + x.abs()));
 unary_op!(k_logsigmoid, |x| -f64::ln_1p((-x).exp()));
 unary_op!(k_tanhshrink, |x| x - f64::tanh(x));
-unary_op!(k_erf, erf_approx);
-unary_op!(k_erfc, |x| 1.0 - erf_approx(x));
+unary_op!(k_erf, erf);
+unary_op!(k_erfc, erfc);
 unary_op!(k_sinc, |x| {
     if x == 0.0 {
         1.0
@@ -5094,5 +5297,82 @@ mod tests {
         // custom fill.
         let out = k_nonzero_static(&[encode_tensor(t(&[1], &[0.0])), json!(2), json!(7)]).unwrap();
         assert_eq!(decode_tensor(&out).unwrap(), t(&[2, 1], &[7.0, 7.0]));
+    }
+
+    #[test]
+    fn erf_erfc_fdlibm_reference_values() {
+        // Reference values: glibc `erf`/`erfc` (correctly rounded since
+        // glibc 2.28), identical to torch's CPU results to ~1 ulp.
+        // Covers every fdlibm branch: |x|<2^-28, [0,0.84375),
+        // [0.84375,1.25), [1.25,1/0.35), [1/0.35,6), [6,28), >=28, negatives.
+        let cases: &[(f64, f64, f64)] = &[
+            // (x, erf(x), erfc(x))
+            (0.0, 0.0, 1.0),
+            (1e-300, 1.1283791670955126e-300, 1.0),
+            (1e-20, 1.1283791670955125e-20, 1.0),
+            (0.125, 0.1403162048013338, 0.8596837951986662),
+            (0.25, 0.27632639016823696, 0.7236736098317631),
+            (0.5, 0.5204998778130465, 0.4795001221869535),
+            (0.84375, 0.7672256612323416, 0.23277433876765838),
+            (1.0, 0.8427007929497149, 0.15729920705028513),
+            (1.25, 0.9229001282564583, 0.07709987174354177),
+            (1.5, 0.9661051464753108, 0.033894853524689274),
+            (2.0, 0.9953222650189527, 0.004677734981047266),
+            (3.0, 0.9999779095030014, 2.209049699858544e-05),
+            (5.9, 0.9999999999999999, 7.190409783550478e-17),
+            (6.0, 1.0, 2.1519736712498913e-17),
+            (10.0, 1.0, 2.088487583762545e-45),
+            (28.0, 1.0, 0.0),
+            (-0.5, -0.5204998778130465, 1.5204998778130465),
+            (-2.0, -0.9953222650189527, 1.9953222650189528),
+            (-10.0, -1.0, 2.0),
+        ];
+        for &(x, want_erf, want_erfc) in cases {
+            let got_erf = erf(x);
+            let got_erfc = erfc(x);
+            // Absolute tolerance covers the O(1) results; the tiny erfc
+            // tail values (e.g. 2e-45) are checked relatively.
+            let tol_erf = 1e-15f64.max(want_erf.abs() * 1e-15);
+            let tol_erfc = 1e-15f64.max(want_erfc.abs() * 1e-13);
+            assert!(
+                (got_erf - want_erf).abs() <= tol_erf,
+                "erf({x}) = {got_erf:e}, want {want_erf:e}"
+            );
+            assert!(
+                (got_erfc - want_erfc).abs() <= tol_erfc,
+                "erfc({x}) = {got_erfc:e}, want {want_erfc:e}"
+            );
+        }
+        // erf(1) to the last printed digit — the value mlopt's verify gate
+        // compares against torch (which returns the correctly rounded result;
+        // 0.84270079294971486934… rounds to this f64).
+        assert!((erf(1.0) - 0.8427007929497149).abs() < 3e-17);
+        // erfc near zero must NOT collapse to 1 - erf: erfc(0.125) keeps
+        // ~1e-16 absolute precision (the old 1-erf_approx path lost ~1e-7).
+        assert!((erfc(0.125) - 0.8596837951986662).abs() < 1e-15);
+    }
+
+    #[test]
+    fn erf_erfc_edge_cases() {
+        // NaN propagates; ±inf map to torch semantics.
+        assert!(erf(f64::NAN).is_nan());
+        assert!(erfc(f64::NAN).is_nan());
+        assert_eq!(erf(f64::INFINITY), 1.0);
+        assert_eq!(erf(f64::NEG_INFINITY), -1.0);
+        assert_eq!(erfc(f64::INFINITY), 0.0);
+        assert_eq!(erfc(f64::NEG_INFINITY), 2.0);
+        // Signed zeros preserved.
+        assert_eq!(erf(0.0), 0.0);
+        assert!(erf(-0.0).is_sign_negative());
+        assert_eq!(erfc(0.0), 1.0);
+        // erf is odd, erfc(-x) = 2 - erfc(x).
+        for &x in &[0.3, 1.1, 2.7, 9.0] {
+            assert!((erf(-x) + erf(x)).abs() < 1e-16);
+            assert!((erfc(-x) - (2.0 - erfc(x))).abs() < 1e-15);
+        }
+        // gelu at the mlopt verify site: exact-erf form now ~1e-16.
+        let g = k_gelu(&t(&[1], &[1.0])).unwrap().data[0];
+        // gelu(1) = 0.5*(1+erf(1/√2)) = 0.841344746068543 (torch).
+        assert!((g - 0.841344746068543).abs() < 1e-15);
     }
 }
