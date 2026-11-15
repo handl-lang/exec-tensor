@@ -16,7 +16,10 @@
 --- — following the `{"__bytes__": ...}` tagged convention (ADR-0083 §2.1).
 --- `shape` is the extent per axis, `data` the flat row-major payload whose
 --- length is the product of `shape`, `dtype` the element type (only `f64`
---- for now). The tag keeps a tensor unambiguous next to user records:
+--- for now). `data` elements are JSON numbers except non-finite `f64`s,
+--- which spell as `{"__nonfinite__": "nan" | "inf" | "-inf"}` — the same
+--- `__x__` tagged convention — so NaN/±inf round-trip exactly. The tag
+--- keeps a tensor unambiguous next to user records:
 --- engines with the kernel `TaggedValue::Tensor` decode it at the
 --- `call_host` boundary and carry it opaquely; engines without it see a
 --- plain object — the wire shape is the same either way.

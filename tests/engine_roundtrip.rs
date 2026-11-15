@@ -220,13 +220,16 @@ fn tensor_value_reencodes_to_wire_form() {
     }
 }
 
-/// The documented wire hole, pinned end to end: `tensor.div` by zero
-/// produces `inf` elements, which have no `serde_json` representation —
-/// the host emits `null` in `data`, `TaggedValue::from` declines the
-/// malformed payload (falling back to a plain `Obj`), and feeding it
-/// back to a host op errors at decode instead of silently projecting.
+/// The non-finite wire path, pinned end to end: `tensor.div` by zero
+/// produces `inf` elements, which the host codec spells as
+/// `{"__nonfinite__": "inf"}` objects in `data`. The kernel-side
+/// `TaggedValue` codec (handl-value) still declines the payload — its
+/// `data` decoder wants bare numbers — so `TaggedValue::from` falls
+/// back to a plain `Obj`, but the tag objects survive verbatim on the
+/// `Value` boundary and a host op fed the object decodes them exactly:
+/// `tensor.to_list` returns the tagged elements instead of erroring.
 #[test]
-fn non_finite_elements_degrade_to_plain_object() {
+fn non_finite_elements_round_trip_as_wire_tags() {
     let rt = tree_walk_runtime();
     let value = rt
         .run(&Source::new(&format!(
@@ -235,16 +238,25 @@ fn non_finite_elements_degrade_to_plain_object() {
         .unwrap();
     assert_eq!(
         value,
-        json!({"__tensor__": {"shape": [1, 2], "data": [null, null], "dtype": "f64"}})
+        json!({"__tensor__": {"shape": [1, 2], "data": [
+            {"__nonfinite__": "inf"}, {"__nonfinite__": "inf"}
+        ], "dtype": "f64"}})
     );
 
-    let err = rt
+    let out = rt
         .run(&Source::new(&format!(
             "do {{ {TENSOR_BINDINGS}              tensor.to_list(tensor.div(tensor.from_list([[1]]), tensor.zeros([1]))) }}"
         )))
-        .expect_err("to_list on a degraded tensor must fail at decode");
-    assert!(
-        err.to_string().contains("data: numbers"),
-        "decode error should name the malformed field: {err}"
-    );
+        .expect("to_list on a non-finite tensor must decode the tags");
+    assert_eq!(out, json!([[{"__nonfinite__": "inf"}]]));
+
+    // And the tags feed back in: from_list accepts them, so a .hnl
+    // program can round-trip a non-finite tensor through the host.
+    let shape = rt
+        .run(&Source::new(&format!(
+            "do {{ {TENSOR_BINDINGS}              t := tensor.div(tensor.from_list([[1]]), tensor.zeros([1])); \
+             tensor.shape(tensor.from_list(tensor.to_list(t))) }}"
+        )))
+        .unwrap();
+    assert_eq!(shape, json!([1, 1]));
 }

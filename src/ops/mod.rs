@@ -28,11 +28,13 @@
 //! `{"__tensor__": {"shape": [d, ...], "data": [x, ...], "dtype": "f64"}}`
 //! — a tagged plain object in the style of `{"__bytes__": [n, ...]}`
 //! (ADR-0083 §2.1). `shape` is the extent per axis (rank = `shape.len()`),
-//! `data` the flat row-major payload (`data.len() == product(shape)`),
-//! `dtype` the element type — optional on decode, `"f64"` the only value
-//! accepted for now. Engines with no `Tensor` scalar see an ordinary
-//! object; engines with the kernel `TaggedValue::Tensor` decode the tag
-//! at the `call_host` boundary and carry the tensor opaquely.
+//! `data` the flat row-major payload (`data.len() == product(shape)`; a
+//! non-finite element spells as `{"__nonfinite__": "nan" | "inf" |
+//! "-inf"}` since JSON has no NaN/±inf literal), `dtype` the element type
+//! — optional on decode, `"f64"` the only value accepted for now.
+//! Engines with no `Tensor` scalar see an ordinary object; engines with
+//! the kernel `TaggedValue::Tensor` decode the tag at the `call_host`
+//! boundary and carry the tensor opaquely.
 
 use std::sync::Arc;
 

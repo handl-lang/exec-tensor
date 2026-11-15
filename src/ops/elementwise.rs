@@ -160,10 +160,9 @@ impl Function for Sub {
 ///
 /// Elementwise division `a / b`, broadcasting like [`Add`]. Division by
 /// zero produces `f64` `inf`/`NaN` — the same semantics `.hnl`
-/// arithmetic gives the scalar `/`, not a host-side error. Note the
-/// `serde_json` wire cannot carry non-finite `f64`s: they serialize as
-/// `null` in `data`, which [`decode_tensor`] rejects on the way back in
-/// (see the codec doc comment).
+/// arithmetic gives the scalar `/`, not a host-side error. Non-finite
+/// results cross the wire as `{"__nonfinite__": …}` elements of `data`
+/// and decode back exactly (see the codec doc comment).
 #[derive(Debug, Clone, Copy)]
 pub struct Div;
 impl Function for Div {
@@ -482,10 +481,14 @@ mod tests {
         .unwrap();
         assert_eq!(v, tensor(&[2, 2], &[4.0, 3.0, 5.0, 4.0]));
         // x/0 is inf — the f64 semantics the scalar `/` gives, not an
-        // error. The inf crosses the JSON boundary as `null` (no
-        // non-finite f64 in serde_json) — the codec's documented hole.
+        // error. The inf crosses the JSON boundary as the
+        // `{"__nonfinite__": "inf"}` wire tag (serde_json has no
+        // non-finite f64 literal).
         let v = call_fn(&Div, &[tensor(&[1], &[1.0]), tensor(&[1], &[0.0])]).unwrap();
-        assert_eq!(v["__tensor__"]["data"][0], Value::Null);
+        assert_eq!(
+            v["__tensor__"]["data"][0],
+            serde_json::json!({"__nonfinite__": "inf"})
+        );
     }
 
     #[test]

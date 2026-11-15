@@ -35,6 +35,9 @@ test_sub_broadcast := assert tensor.to_list(tensor.sub(tensor.from_list([[10, 20
 
 test_div_broadcast := assert tensor.to_list(tensor.div(tensor.from_list([[8, 9], [10, 12]]), tensor.from_list([[2, 3]]))) = [[4, 3], [5, 4]]
 
+--- div by zero → inf, spelled {"__nonfinite__": "inf"} on the wire.
+test_div_by_zero_nonfinite := assert tensor.to_list(tensor.div(tensor.from_list([[1]]), tensor.zeros([1])))[0][0].__nonfinite__ = "inf"
+
 test_matmul_2x2 := assert tensor.to_list(tensor.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]))) = [[19, 22], [43, 50]]
 
 test_matmul_rect := assert tensor.to_list(tensor.matmul(tensor.from_list([[1, 2, 3], [4, 5, 6]]), tensor.from_list([[7, 8], [9, 10], [11, 12]]))) = [[58, 64], [139, 154]]

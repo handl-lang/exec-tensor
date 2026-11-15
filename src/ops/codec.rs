@@ -32,11 +32,51 @@ pub(crate) fn type_mismatch(expected: &str, got: &str) -> EvalError {
     EvalError::TypeMismatch(format!("expected {expected}, got {got}"))
 }
 
+/// The non-finite wire tag — `serde_json` has no NaN/±inf literals, so a
+/// non-finite `f64` element serializes as the tagged object
+/// `{"__nonfinite__": "nan" | "inf" | "-inf"}` inside `data`, the same
+/// `__x__` tagged-object convention as `__tensor__`/`__bytes__`.
+const NONFINITE_TAG: &str = "__nonfinite__";
+
+/// Decode one `data` element: a JSON number, or the
+/// `{"__nonfinite__": …}` tag for NaN/`inf`/`-inf`. `None` on anything
+/// else (including a `null`, an unknown tag, or a tag object nested
+/// where a number belongs).
+fn decode_f64(x: &Value) -> Option<f64> {
+    if let Some(n) = x.as_f64() {
+        return Some(n);
+    }
+    match x.get(NONFINITE_TAG)?.as_str()? {
+        "nan" => Some(f64::NAN),
+        "inf" => Some(f64::INFINITY),
+        "-inf" => Some(f64::NEG_INFINITY),
+        _ => None,
+    }
+}
+
+/// Encode one element for the wire: finite `f64`s stay JSON numbers;
+/// NaN/`inf`/`-inf` become the `{"__nonfinite__": …}` tag (there is no
+/// JSON literal for them — `Number::from_f64` rejects them and they
+/// would otherwise serialize as `null`, which decode rejects).
+fn encode_f64(x: f64) -> Value {
+    if x.is_nan() {
+        json!({ NONFINITE_TAG: "nan" })
+    } else if x == f64::INFINITY {
+        json!({ NONFINITE_TAG: "inf" })
+    } else if x == f64::NEG_INFINITY {
+        json!({ NONFINITE_TAG: "-inf" })
+    } else {
+        json!(x)
+    }
+}
+
 /// Decode a tensor argument. Accepts `{"__tensor__": {"shape": [...],
 /// "data": [...], "dtype"?: "f64"}}`; anything else — a missing tag, a
-/// non-array shape/data, a negative or non-integer extent, a data length
-/// that is not `product(shape)`, or a `dtype` other than `"f64"` — is a
-/// `TypeMismatch` (malformed wire value) rather than a silent coercion.
+/// non-array shape/data, a negative or non-integer extent, a data
+/// element that is neither a number nor a valid `{"__nonfinite__": …}`
+/// tag, a data length that is not `product(shape)`, or a `dtype` other
+/// than `"f64"` — is a `TypeMismatch` (malformed wire value) rather
+/// than a silent coercion.
 pub(crate) fn decode_tensor(arg: &Value) -> Result<Tensor, EvalError> {
     let inner = arg
         .get("__tensor__")
@@ -71,8 +111,9 @@ pub(crate) fn decode_tensor(arg: &Value) -> Result<Tensor, EvalError> {
     let mut data = Vec::with_capacity(data_arr.len());
     for x in data_arr {
         data.push(
-            x.as_f64()
-                .ok_or_else(|| type_mismatch("data: numbers", "non-number"))?,
+            decode_f64(x).ok_or_else(|| {
+                type_mismatch("data: numbers or __nonfinite__ tags", "non-number")
+            })?,
         );
     }
     let expected = shape.iter().product::<usize>();
@@ -96,17 +137,24 @@ pub(crate) fn require_tensor(args: &[Value], pos: usize) -> Result<Tensor, EvalE
 /// Encode a tensor as the canonical `{"__tensor__": {...}}` wire value.
 ///
 /// Non-finite `f64` elements (`inf`, `-inf`, `NaN` — e.g. a `div` by
-/// zero or an `add`/`mul` overflow) have no `serde_json` representation:
-/// `Number::from_f64` rejects them and they serialize as `null` in
-/// `data`, which [`decode_tensor`] rejects on the way back in. The wire
-/// is therefore closed over *finite* `f64` only — the kernel
-/// `TaggedValue::Tensor` carries them inside an engine, but any
-/// `serde_json` crossing still degrades them to `null`.
+/// zero or an `add`/`mul` overflow) have no `serde_json` number
+/// representation, so they serialize as `{"__nonfinite__": "nan" |
+/// "inf" | "-inf"}` elements of `data` — round-tripping exactly through
+/// [`decode_tensor`]. Finite tensors encode byte-identically to the
+/// pre-tag wire form, so old payloads still decode.
+///
+/// Note the boundary asymmetry that remains: the kernel
+/// `TaggedValue::Tensor` carries non-finite `f64`s inside an engine,
+/// but the *kernel-side* `TaggedValue`↔`Value` codec (handl-value,
+/// kernel repo) still renders them as `null` — such a payload decodes
+/// here as a plain object rather than a `Tensor`, and a host op fed
+/// that object still round-trips the tags correctly.
 pub(crate) fn encode_tensor(t: Tensor) -> Value {
+    let data: Vec<Value> = t.data.iter().map(|&x| encode_f64(x)).collect();
     json!({
         "__tensor__": {
             "shape": t.shape,
-            "data": t.data,
+            "data": data,
             "dtype": "f64",
         }
     })
@@ -290,11 +338,13 @@ impl Function for Ones {
 
 /// The Rust handl for `op "tensor.from_list" : Array -> Tensor`.
 ///
-/// Infers the shape from the nesting of number arrays and requires the
-/// input to be rectangular: at every level all siblings must have the same
-/// inferred sub-shape, so `[[1, 2], [3]]` and `[[1], 2]` are errors. A
-/// scalar argument is not a list — `TypeMismatch`. `[]` is the rank-1
-/// empty tensor (shape `[0]`); `[[], []]` is shape `[2, 0]`.
+/// Infers the shape from the nesting of number arrays — leaves may also
+/// be `{"__nonfinite__": "nan" | "inf" | "-inf"}` tags, the wire spelling
+/// of non-finite elements — and requires the input to be rectangular: at
+/// every level all siblings must have the same inferred sub-shape, so
+/// `[[1, 2], [3]]` and `[[1], 2]` are errors. A scalar argument is not a
+/// list — `TypeMismatch`. `[]` is the rank-1 empty tensor (shape `[0]`);
+/// `[[], []]` is shape `[2, 0]`.
 #[derive(Debug, Clone, Copy)]
 pub struct FromList;
 impl Function for FromList {
@@ -312,7 +362,8 @@ impl Function for FromList {
 }
 
 /// Infer `xs`' shape: `[]` prepends its length to the (uniform) sub-shape
-/// of its elements; a number contributes `[]`; anything else errors.
+/// of its elements; a number — or a `{"__nonfinite__": …}` tag, the wire
+/// spelling of NaN/±inf — contributes `[]`; anything else errors.
 fn infer_shape(xs: &Value) -> Result<Vec<usize>, EvalError> {
     match xs {
         Value::Array(arr) => {
@@ -331,13 +382,14 @@ fn infer_shape(xs: &Value) -> Result<Vec<usize>, EvalError> {
             }
             Ok(shape)
         }
-        Value::Number(_) => Ok(Vec::new()),
+        v if decode_f64(v).is_some() => Ok(Vec::new()),
         _ => Err(type_mismatch("nested number arrays", "non-number leaf")),
     }
 }
 
 /// Append `xs`' numbers to `out` in row-major order. Only reachable after
-/// [`infer_shape`] accepted `xs`, so every leaf is a number.
+/// [`infer_shape`] accepted `xs`, so every leaf decodes via [`decode_f64`]
+/// (a JSON number or a `{"__nonfinite__": …}` tag).
 fn flatten(xs: &Value, out: &mut Vec<f64>) {
     match xs {
         Value::Array(arr) => {
@@ -345,8 +397,11 @@ fn flatten(xs: &Value, out: &mut Vec<f64>) {
                 flatten(el, out);
             }
         }
-        Value::Number(n) => out.push(n.as_f64().unwrap_or(0.0)),
-        _ => {}
+        leaf => {
+            if let Some(x) = decode_f64(leaf) {
+                out.push(x);
+            }
+        }
     }
 }
 
@@ -357,7 +412,9 @@ fn flatten(xs: &Value, out: &mut Vec<f64>) {
 /// The Rust handl for `op "tensor.to_list" : Tensor -> Array`.
 ///
 /// The inverse of `from_list`: re-nests the flat row-major payload into
-/// `shape`'s structure.
+/// `shape`'s structure. Non-finite elements come back as the
+/// `{"__nonfinite__": …}` tag — accepted again by `from_list`, so the
+/// pair round-trips NaN/±inf exactly.
 #[derive(Debug, Clone, Copy)]
 pub struct ToList;
 impl Function for ToList {
@@ -369,10 +426,13 @@ impl Function for ToList {
     }
 }
 
-/// Re-nest `data` (row-major) under `shape`.
+/// Re-nest `data` (row-major) under `shape`. Non-finite elements emit
+/// the `{"__nonfinite__": …}` tag — the same spelling [`encode_tensor`]
+/// uses in `data` — so a `to_list` result never silently degrades a
+/// NaN/±inf to `null`.
 fn nest(shape: &[usize], data: &mut impl Iterator<Item = f64>) -> Value {
     match shape.split_first() {
-        None => json!(data.next().unwrap_or(0.0)),
+        None => data.next().map(encode_f64).unwrap_or(Value::Null),
         Some((&d, rest)) => Value::Array((0..d).map(|_| nest(rest, data)).collect()),
     }
 }
@@ -425,6 +485,92 @@ mod tests {
         assert!(decode_tensor(&json!({"__tensor__": {"shape": [2], "data": [1]}})).is_err());
         assert!(decode_tensor(&json!({"__tensor__": {"shape": [-1], "data": []}})).is_err());
         assert!(decode_tensor(&json!(42)).is_err());
+    }
+
+    // ── non-finite wire elements ──────────────────────────────────────
+
+    /// The `{"__nonfinite__": …}` spelling of each non-finite class.
+    fn nonfinite(tag: &str) -> Value {
+        json!({"__nonfinite__": tag})
+    }
+
+    #[test]
+    fn nonfinite_elements_round_trip() {
+        let v = json!({"__tensor__": {
+            "shape": [2, 3],
+            "data": [1.0, nonfinite("nan"), 2.5, nonfinite("inf"), nonfinite("-inf"), -0.0],
+            "dtype": "f64",
+        }});
+        let t = decode_tensor(&v).unwrap();
+        assert_eq!(t.shape, vec![2, 3]);
+        assert_eq!(t.data[0], 1.0);
+        assert!(t.data[1].is_nan());
+        assert_eq!(t.data[2], 2.5);
+        assert_eq!(t.data[3], f64::INFINITY);
+        assert_eq!(t.data[4], f64::NEG_INFINITY);
+        assert_eq!(t.data[5], -0.0);
+        // Encode reproduces the tagged spelling exactly.
+        assert_eq!(encode_tensor(t), v);
+    }
+
+    #[test]
+    fn encode_tags_every_nonfinite_class() {
+        let t = Tensor {
+            shape: vec![4],
+            data: vec![f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1.5],
+        };
+        let v = encode_tensor(t);
+        assert_eq!(v["__tensor__"]["data"][0], nonfinite("nan"));
+        assert_eq!(v["__tensor__"]["data"][1], nonfinite("inf"));
+        assert_eq!(v["__tensor__"]["data"][2], nonfinite("-inf"));
+        assert_eq!(v["__tensor__"]["data"][3], json!(1.5));
+    }
+
+    #[test]
+    fn decode_rejects_bad_nonfinite_tags_and_nulls() {
+        for bad in [
+            json!(null),
+            json!("nan"),
+            json!({"__nonfinite__": "bogus"}),
+            json!({"__nonfinite__": 1}),
+            json!({"other": "nan"}),
+        ] {
+            let v = json!({"__tensor__": {"shape": [1], "data": [bad]}});
+            assert!(decode_tensor(&v).is_err(), "must reject {v}");
+        }
+    }
+
+    #[test]
+    fn from_list_accepts_nonfinite_tags() {
+        let v = call_fn(
+            &FromList,
+            &[json!([[1, {"__nonfinite__": "inf"}], [{"__nonfinite__": "nan"}, -2]])],
+        )
+        .unwrap();
+        assert_eq!(v["__tensor__"]["shape"], json!([2, 2]));
+        let t = decode_tensor(&v).unwrap();
+        assert_eq!(t.data[0], 1.0);
+        assert_eq!(t.data[1], f64::INFINITY);
+        assert!(t.data[2].is_nan());
+        assert_eq!(t.data[3], -2.0);
+    }
+
+    #[test]
+    fn to_list_emits_nonfinite_tags() {
+        // (`tensor()` builds wire via `json!`, which would null the
+        // non-finites — spell the tagged form directly.)
+        let wire = json!({"__tensor__": {
+            "shape": [2],
+            "data": [nonfinite("inf"), nonfinite("nan")],
+            "dtype": "f64",
+        }});
+        let v = call_fn(&ToList, &[wire]).unwrap();
+        assert_eq!(v, json!([nonfinite("inf"), nonfinite("nan")]));
+        // And the pair round-trips: from_list(to_list(x)) == x.
+        let back = call_fn(&FromList, &[v]).unwrap();
+        let t = decode_tensor(&back).unwrap();
+        assert_eq!(t.data[0], f64::INFINITY);
+        assert!(t.data[1].is_nan());
     }
 
     // ── construction ──────────────────────────────────────────────────

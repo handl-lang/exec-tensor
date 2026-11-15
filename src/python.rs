@@ -18,9 +18,10 @@
 //!
 //! Args/results are `serde_json::Value` on both sides: tensors ride the
 //! `{"__tensor__": {"shape": [...], "data": [...], "dtype": "f64"}}`
-//! wire record (see `src/ops/codec.rs`).  JSON has no NaN/Inf literals,
-//! so non-finite payloads cannot cross this boundary — the same hole
-//! the codec documents for every serde_json consumer.
+//! wire record (see `src/ops/codec.rs`). JSON has no NaN/Inf literals,
+//! so non-finite payload elements cross as `{"__nonfinite__": "nan" |
+//! "inf" | "-inf"}` objects inside `data` — decoded exactly by
+//! [`crate::ops::codec`]'s tensor codec.
 
 use std::sync::OnceLock;
 

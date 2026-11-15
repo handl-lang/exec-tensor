@@ -117,6 +117,14 @@ the `__bytes__` style (ADR-0083 §2.1); a plain object to engines with no
 {"__tensor__": {"shape": [2, 3], "data": [1, 2, 3, 4, 5, 6], "dtype": "f64"}}
 ```
 
+`data` elements are JSON numbers, except non-finite `f64`s — NaN,
+`inf`, `-inf` — which serialize as the tagged objects
+`{"__nonfinite__": "nan" | "inf" | "-inf"}` (the same `__x__` tagged
+convention as `__tensor__` itself; `serde_json` has no non-finite
+number literal). Decode accepts both spellings, so non-finite results
+(e.g. `tensor.div` by zero) round-trip exactly; `tensor.from_list`
+accepts the tags and `tensor.to_list` emits them.
+
 ## Composition
 
 The Rust crate (`handl-host-tensor`) ships the `.hnl` interface plus the
@@ -211,9 +219,13 @@ ADR-0083 §2.2), with decode/encode in the `TaggedValue`↔`Value` codec —
 engines carry it opaquely (`tests/engine_roundtrip.rs` pins the
 round-trip on tree-walk and bytecode). The wire encoding is unchanged —
 it stays the `Function`-boundary form, and engines without the variant
-still see a plain object. One asymmetry to note: inside an engine the
-variant carries non-finite `f64`s, but any `serde_json` crossing still
-serializes them as `null` (the codec's documented finite-only hole).
+still see a plain object. One asymmetry remains on the *kernel* side:
+`handl-value`'s `TaggedValue`↔`Value` codec still renders a
+`TaggedValue::Tensor`'s non-finite elements as `null` and declines the
+`__nonfinite__` tag spelling on decode — so an engine-produced tensor
+carrying NaN/±inf degrades to a plain `Obj` at the boundary (the tag
+objects survive verbatim inside it, and host ops fed the object decode
+them exactly). Closing that half is a kernel-repo change.
 
 ## Documentation
 
