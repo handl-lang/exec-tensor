@@ -35,7 +35,7 @@ Decode accepts both spellings, so `tensor.div` by zero produces
 
 ## Why an ATen catalog
 
-The handwritten core (31 ops) covers what the platform's own
+The handwritten core (32 ops) covers what the platform's own
 workloads need — construction, elementwise algebra, `matmul`,
 `conv2d`/`max_pool`/`batch_norm`, shape ops, and their adjoints. The
 generated ATen catalog (~200 more ops) ports the PyTorch `aten::*`

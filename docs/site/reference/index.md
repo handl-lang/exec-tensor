@@ -40,11 +40,11 @@ tensor.matmul(tensor.from_list([[1, 2]]), tensor.from_list([[3], [4]]))
 
 ## The op catalog
 
-`src/index.hnl` declares **238 `tensor.*` ops** — the source of truth;
+`src/index.hnl` declares **239 `tensor.*` ops** — the source of truth;
 the Rust impls in `src/ops/` mirror it (a drift-guard test pins the
 interface). Two layers:
 
-### Handwritten core (31 ops)
+### Handwritten core (32 ops)
 
 | group | ops |
 |---|---|
@@ -56,6 +56,7 @@ interface). Two layers:
 | conv/norm | `tensor.conv2d`, `tensor.conv2d_backward`, `tensor.max_pool`, `tensor.max_pool_backward`, `tensor.batch_norm`, `tensor.batch_norm_backward` |
 | shape | `tensor.reshape`, `reshape_backward`, `unsqueeze`, `select`, `transpose`, `transpose_backward`, `concat`, `concat_backward` |
 | derivatives | `tensor.derive` — registered adjoint name for a primal, or `null` |
+| ingest | `tensor.load(path[, name])` — one tensor out of a safetensors sidecar |
 
 Broadcasting: trailing dims align, a `1`-dim stretches, a missing
 leading dim counts as `1`; a mismatched non-`1` pair is an error.

@@ -127,3 +127,10 @@ test_transpose_backward := assert tensor.to_list((tensor.transpose_backward(tens
 test_concat_backward := assert tensor.to_list((tensor.concat_backward([tensor.zeros([2, 1]), tensor.zeros([2, 1])], 0, tensor.from_list([[1], [2], [3], [4]])).xs)[1]) = [[3], [4]]
 
 test_derive_reshape := assert tensor.derive("reshape") = "tensor.reshape_backward"
+
+--- tensor.load: safetensors sidecar ingest. The fixture is one F64
+--- tensor "w" = [[1,2],[3,4]]; relative paths resolve against
+--- $TENSOR_LOAD_DIR (export it to tests/fixtures) or the cwd.
+test_load := assert tensor.to_list(tensor.load("load_fixture.safetensors", "w")) = [[1, 2], [3, 4]]
+
+test_load_shape := assert tensor.shape(tensor.load("load_fixture.safetensors")) = [2, 2]

@@ -75,6 +75,17 @@
 --- and carry none). The `*_backward` convention: required primal args,
 --- then the upstream gradient, then the primal's positional optionals.
 ---
+--- `tensor.load(path[, name])` is the out-of-band weight channel
+--- `from_list` cannot be: it reads a **safetensors** sidecar (8-byte
+--- little-endian header length + JSON header + raw LE payload) and
+--- returns one tensor whose shape comes from the file header — never
+--- the call site.  `name` selects a key in the header; omitted, the
+--- file must hold exactly one tensor.  `"F64"` is the identity,
+--- `"F32"` widens to f64 on ingest; every other dtype fails loudly.
+--- Relative paths resolve against `$TENSOR_LOAD_DIR` when set (the
+--- base dir for stdin evals, which have no artifact directory), else
+--- the process cwd.  See host:project/reports/tensor_load_spike.md.
+---
 --- ## Capability declarations (ADR-0077 Phase 4)
 --- tensor.zeros -- a tensor of `shape` filled with 0.0.
 --- tensor.ones -- a tensor of `shape` filled with 1.0.
@@ -100,6 +111,7 @@
 --- tensor.concat -- `xs` joined along `axis` (same rank, other axes equal).
 --- tensor.batch_norm_backward -- adjoint of `tensor.batch_norm`: `(input, gamma, beta, mean, var, grad_out, eps?) -> {input, gamma, beta}`.
 --- tensor.derive -- the adjoint op name registered for `name` (qualified or bare local), or `null`.
+--- tensor.load -- a tensor read from a safetensors sidecar file (`path`, optional `name` key).
 cap "tensor.zeros"
 cap "tensor.ones"
 cap "tensor.from_list"
@@ -131,6 +143,7 @@ cap "tensor.concat"
 cap "tensor.concat_backward"
 cap "tensor.batch_norm_backward"
 cap "tensor.derive"
+cap "tensor.load"
 --- ATEN-PORT-GEN:BEGIN caps
 cap "tensor.abs"
 cap "tensor.neg"
@@ -433,6 +446,15 @@ op "tensor.concat_backward" : (Array * Int * Tensor) -> Value
 op "tensor.batch_norm_backward" : Value... -> Value
   guarantee: True
 op "tensor.derive" : String -> Value
+  guarantee: True
+--- load(path) / load(path, name) — read one tensor out of a
+--- safetensors sidecar (8-byte LE header length + JSON header +
+--- raw LE payload).  `name` omitted ⇒ the file must hold exactly one
+--- tensor.  dtype "F64" identity, "F32" widens to f64; other dtypes
+--- fail loudly.  Relative `path` resolves against `$TENSOR_LOAD_DIR`
+--- when set, else the process cwd — the stdin-eval base dir.
+--- Shape comes from the file header, not the call site.
+op "tensor.load" : Value... -> Tensor
   guarantee: True
 --- ATEN-PORT-GEN:BEGIN ops
 --- aten::abs(Tensor self) -> Tensor
@@ -1088,6 +1110,7 @@ handle "tensor.concat" with rust_tensor_concat
 handle "tensor.concat_backward" with rust_tensor_concat_backward
 handle "tensor.batch_norm_backward" with rust_tensor_batch_norm_backward
 handle "tensor.derive" with rust_tensor_derive
+handle "tensor.load" with rust_tensor_load
 --- ATEN-PORT-GEN:BEGIN handles
 handle "tensor.abs" with rust_abs
 handle "tensor.neg" with rust_neg
@@ -1334,6 +1357,7 @@ export tensor := {
   concat_backward: "tensor.concat_backward",
   batch_norm_backward: "tensor.batch_norm_backward",
     derive: "tensor.derive",
+  load: "tensor.load",
 --- ATEN-PORT-GEN:BEGIN export
   abs: "tensor.abs",
   neg: "tensor.neg",

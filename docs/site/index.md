@@ -13,11 +13,11 @@ engines with no tensor scalar see an ordinary object while engines
 carrying the kernel `TaggedValue::Tensor` decode the tag at the
 `call_host` boundary and pass it opaquely.
 
-`src/index.hnl` is the single source of truth for the surface — 238
+`src/index.hnl` is the single source of truth for the surface — 239
 `tensor.*` ops declared as FFI atoms — and the Rust side in `src/ops/`
 implements exactly what that file declares:
 
-- a **handwritten core** (31 ops): construction and projection
+- a **handwritten core** (32 ops): construction and projection
   (`zeros`, `ones`, `from_list`, `to_list`, `shape`), elementwise
   algebra with numpy broadcasting (`add`/`mul`/`sub`/`div`), `matmul`
   and `linear`, NCHW `conv2d`/`max_pool`/`batch_norm`, shape

@@ -14,7 +14,7 @@
 //!
 //! | file | ops | spec |
 //! |---|---|---|
-//! | [`codec`] | the wire codec + `zeros`/`ones`/`from_list`/`to_list`/`shape` | `codec.hnl` |
+//! | [`codec`] | the wire codec + `zeros`/`ones`/`from_list`/`to_list`/`shape`/`load` | `codec.hnl` |
 //! | [`elementwise`] | `add`/`mul`/`sub`/`div` + their `*_backward` adjoints | `elementwise.hnl` |
 //! | [`matmul`] | `matmul` (rank-2/3, batch broadcast) + `matmul_backward` | `matmul.hnl` |
 //! | [`conv`] | `conv2d`, `max_pool` + their `*_backward` (NCHW) | `conv.hnl` |
@@ -50,7 +50,7 @@ pub mod matmul;
 pub mod norm;
 pub mod shape_ops;
 
-pub use codec::{FromList, Ones, Shape, ToList, Zeros};
+pub use codec::{FromList, Load, Ones, Shape, ToList, Zeros};
 pub use conv::{Conv2d, Conv2dBackward, MaxPool, MaxPoolBackward};
 pub use derive::{DERIV_PAIRS, Derive};
 pub use elementwise::{Add, AddBackward, Div, DivBackward, Mul, MulBackward, Sub, SubBackward};
@@ -94,6 +94,7 @@ pub const TENSOR_OPS: &[&str] = &[
     "tensor.concat_backward",
     "tensor.batch_norm_backward",
     "tensor.derive",
+    "tensor.load",
     // ATEN-PORT-GEN:BEGIN ops
     "tensor.abs",
     "tensor.neg",
@@ -344,6 +345,7 @@ pub fn tensor_op_registry() -> OpRegistry {
     registry.register("tensor.concat_backward", Arc::new(ConcatBackward));
     registry.register("tensor.batch_norm_backward", Arc::new(BatchNormBackward));
     registry.register("tensor.derive", Arc::new(Derive));
+    registry.register("tensor.load", Arc::new(Load));
     // ATEN-PORT-GEN:BEGIN registry
     registry.register("tensor.abs", Arc::new(aten_generated::Abs));
     registry.register("tensor.neg", Arc::new(aten_generated::Neg));

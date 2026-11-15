@@ -12,6 +12,8 @@
 //! The boundary ops live here too: [`Zeros`], [`Ones`], [`FromList`]
 //! construct wire tensors; [`ToList`], [`Shape`] project them.
 
+use std::path::{Path, PathBuf};
+
 use handl_platform::{EvalContext, EvalError, Function};
 use serde_json::{Value, json};
 
@@ -437,6 +439,221 @@ fn nest(shape: &[usize], data: &mut impl Iterator<Item = f64>) -> Value {
     }
 }
 
+// ---------------------------------------------------------------------------
+// tensor.load — safetensors sidecar ingest
+// ---------------------------------------------------------------------------
+//
+// `tensor.load(path[, name])` reads a safetensors file — the out-of-band
+// weight channel `tensor.from_list` cannot be (see
+// host:project/reports/tensor_load_spike.md): 8-byte LE header length +
+// JSON header `{name: {dtype, shape, data_offsets}}` + raw little-endian
+// payload.  Shape comes from the file header, never the call site.
+//
+// Path resolution: absolute paths pass through; relative paths resolve
+// against `$TENSOR_LOAD_DIR` when set (the stdin-eval wrinkle —
+// `hnl-run -` has no artifact directory, so emit keeps `.hnl` +
+// `.safetensors` relocatable as a pair by exporting the var), else
+// against the process cwd.
+//
+// dtype: `"F64"` is the identity (the internal repr is f64); `"F32"`
+// widens `f32 → f64` on ingest (whisper weights are f32 — the sidecar
+// halves the binary).  Every other dtype (`F16`/`BF16`/`I64`/`BOOL`/…)
+// is a named error; extending is a match arm, not a format change.
+// Non-finite elements ride the binary channel natively and re-encode
+// through [`encode_tensor`]'s `__nonfinite__` tags.
+
+/// Env var prepended to relative `tensor.load` paths (see module docs).
+const LOAD_BASE_ENV: &str = "TENSOR_LOAD_DIR";
+
+/// The Rust handl for `op "tensor.load" : Value... -> Tensor` —
+/// `load(path)` / `load(path, name)` over a safetensors sidecar.
+#[derive(Debug, Clone, Copy)]
+pub struct Load;
+impl Function for Load {
+    fn call(&self, args: &[Value], _ctx: &mut EvalContext) -> Result<Value, EvalError> {
+        require_arg_range(args, 1, 2, "tensor.load")?;
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| type_mismatch("path: string", "non-string"))?;
+        let name = match args.get(1) {
+            Some(v) if !v.is_null() => Some(
+                v.as_str()
+                    .ok_or_else(|| type_mismatch("name: string", "non-string"))?,
+            ),
+            _ => None,
+        };
+        Ok(encode_tensor(load_safetensors(path, name)?))
+    }
+}
+
+/// Resolve `path` for reading: absolute as-is; relative against
+/// `$TENSOR_LOAD_DIR` when set and non-empty, else the process cwd.
+fn resolve_load_path(path: &str) -> PathBuf {
+    let p = Path::new(path);
+    if p.is_absolute() {
+        return p.to_path_buf();
+    }
+    if let Ok(base) = std::env::var(LOAD_BASE_ENV) {
+        if !base.is_empty() {
+            return Path::new(&base).join(p);
+        }
+    }
+    p.to_path_buf()
+}
+
+/// One tensor entry decoded from the safetensors header.
+struct StEntry {
+    dtype: String,
+    shape: Vec<usize>,
+    /// Payload-relative `[begin, end)` byte range.
+    begin: usize,
+    end: usize,
+}
+
+/// Read + parse the safetensors file at `path`, returning the tensor
+/// named `name` (or the file's only tensor when `name` is `None`).
+fn load_safetensors(path: &str, name: Option<&str>) -> Result<Tensor, EvalError> {
+    let resolved = resolve_load_path(path);
+    let bytes = std::fs::read(&resolved).map_err(|e| {
+        EvalError::Other(format!(
+            "tensor.load: cannot read {path} (resolved {}): {e}",
+            resolved.display()
+        ))
+    })?;
+    parse_safetensors(&bytes, path, name)
+}
+
+/// Parse safetensors bytes: `u64le header_len`, JSON header, raw LE
+/// payload.  All failures are `EvalError::Other` naming `path` + reason.
+fn parse_safetensors(bytes: &[u8], path: &str, name: Option<&str>) -> Result<Tensor, EvalError> {
+    let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
+    if bytes.len() < 8 {
+        return Err(err("truncated — no 8-byte header length".to_string()));
+    }
+    let hlen = u64::from_le_bytes(bytes[..8].try_into().unwrap()) as usize;
+    let hend = 8usize
+        .checked_add(hlen)
+        .filter(|&e| e <= bytes.len())
+        .ok_or_else(|| err("truncated header".to_string()))?;
+    let header: Value = serde_json::from_slice(&bytes[8..hend])
+        .map_err(|e| err(format!("header is not valid JSON: {e}")))?;
+    let obj = header
+        .as_object()
+        .ok_or_else(|| err("header is not a JSON object".to_string()))?;
+
+    // Every non-`__metadata__` key is a tensor entry.
+    let mut entries: Vec<(String, StEntry)> = Vec::with_capacity(obj.len());
+    for (key, val) in obj {
+        if key == "__metadata__" {
+            continue;
+        }
+        let rec = val
+            .as_object()
+            .ok_or_else(|| err(format!("header entry {key:?} is not an object")))?;
+        let dtype = rec
+            .get("dtype")
+            .and_then(Value::as_str)
+            .ok_or_else(|| err(format!("header entry {key:?}: missing dtype")))?
+            .to_string();
+        let shape_val = rec
+            .get("shape")
+            .and_then(Value::as_array)
+            .ok_or_else(|| err(format!("header entry {key:?}: missing shape array")))?;
+        let mut shape = Vec::with_capacity(shape_val.len());
+        for d in shape_val {
+            let n = d
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or_else(|| err(format!("header entry {key:?}: bad shape extent")))?;
+            shape.push(n);
+        }
+        let offs = rec
+            .get("data_offsets")
+            .and_then(Value::as_array)
+            .ok_or_else(|| err(format!("header entry {key:?}: missing data_offsets")))?;
+        if offs.len() != 2 {
+            return Err(err(format!(
+                "header entry {key:?}: data_offsets must be [begin, end]"
+            )));
+        }
+        let begin = offs[0]
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or_else(|| err(format!("header entry {key:?}: bad data_offsets")))?;
+        let end = offs[1]
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or_else(|| err(format!("header entry {key:?}: bad data_offsets")))?;
+        entries.push((
+            key.clone(),
+            StEntry {
+                dtype,
+                shape,
+                begin,
+                end,
+            },
+        ));
+    }
+
+    let chosen: &StEntry = match name {
+        Some(want) => entries
+            .iter()
+            .find(|(k, _)| k == want)
+            .map(|(_, e)| e)
+            .ok_or_else(|| {
+                let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
+                err(format!("no tensor named {want:?} — file holds {keys:?}"))
+            })?,
+        None => match entries.as_slice() {
+            [(_, only)] => only,
+            [] => return Err(err("file holds no tensors".to_string())),
+            _ => {
+                let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
+                return Err(err(format!(
+                    "file holds {} tensors {keys:?} — pass a name",
+                    keys.len()
+                )));
+            }
+        },
+    };
+
+    let payload = &bytes[hend..];
+    if chosen.end > payload.len() || chosen.begin > chosen.end {
+        return Err(err(format!(
+            "data_offsets {:?} out of bounds (payload {} bytes)",
+            [chosen.begin, chosen.end],
+            payload.len()
+        )));
+    }
+    let bytes_of = &payload[chosen.begin..chosen.end];
+    let numel: usize = chosen.shape.iter().product();
+    let (elem_size, decode): (usize, fn(&[u8]) -> f64) = match chosen.dtype.as_str() {
+        "F64" => (8, |b| f64::from_le_bytes(b.try_into().unwrap())),
+        "F32" => (4, |b| f32::from_le_bytes(b.try_into().unwrap()) as f64),
+        other => {
+            return Err(err(format!(
+                "unsupported dtype {other:?} — tensor.load accepts \"F64\" and \"F32\""
+            )));
+        }
+    };
+    let expected = numel
+        .checked_mul(elem_size)
+        .ok_or_else(|| err("shape extent overflows usize".to_string()))?;
+    if bytes_of.len() != expected {
+        return Err(err(format!(
+            "payload {} bytes != {} elements × {elem_size}B for shape {:?}",
+            bytes_of.len(),
+            numel,
+            chosen.shape
+        )));
+    }
+    let data: Vec<f64> = bytes_of.chunks_exact(elem_size).map(decode).collect();
+    Ok(Tensor {
+        shape: chosen.shape.clone(),
+        data,
+    })
+}
+
 /// The Rust handl for `op "tensor.shape" : Tensor -> (List Int)`.
 #[derive(Debug, Clone, Copy)]
 pub struct Shape;
@@ -641,5 +858,197 @@ mod tests {
     fn shape_projects() {
         let v = call_fn(&Shape, &[tensor(&[2, 3], &[0.0; 6])]).unwrap();
         assert_eq!(v, json!([2, 3]));
+    }
+
+    // ── tensor.load — safetensors sidecar ─────────────────────────────
+
+    /// Serialize `(name, dtype, shape, payload-bytes)` entries into
+    /// safetensors wire form (8-byte LE header len + JSON + payload).
+    fn safetensors(tensors: &[(&str, &str, &[usize], Vec<u8>)]) -> Vec<u8> {
+        let mut header = serde_json::Map::new();
+        let mut payload = Vec::new();
+        for (name, dtype, shape, bytes) in tensors {
+            let begin = payload.len();
+            payload.extend_from_slice(bytes);
+            let end = payload.len();
+            header.insert(
+                (*name).to_string(),
+                json!({
+                    "dtype": dtype,
+                    "shape": shape,
+                    "data_offsets": [begin, end],
+                }),
+            );
+        }
+        let hjson = serde_json::to_vec(&Value::Object(header)).unwrap();
+        let mut out = (hjson.len() as u64).to_le_bytes().to_vec();
+        out.extend_from_slice(&hjson);
+        out.extend_from_slice(&payload);
+        out
+    }
+
+    fn f64s(xs: &[f64]) -> Vec<u8> {
+        xs.iter().flat_map(|x| x.to_le_bytes()).collect()
+    }
+
+    fn f32s(xs: &[f32]) -> Vec<u8> {
+        xs.iter().flat_map(|x| x.to_le_bytes()).collect()
+    }
+
+    /// Write `bytes` under a per-test temp dir; returns the file path.
+    fn write_st(test: &str, bytes: &[u8]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "host-tensor-load-test-{}-{test}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("t.safetensors");
+        std::fs::write(&p, bytes).unwrap();
+        p
+    }
+
+    #[test]
+    fn load_f64_single_tensor_unnamed() {
+        let p = write_st(
+            "f64",
+            &safetensors(&[("w", "F64", &[2, 2], f64s(&[1.0, 2.0, 3.0, 4.0]))]),
+        );
+        let v = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap();
+        assert_eq!(v, tensor(&[2, 2], &[1.0, 2.0, 3.0, 4.0]));
+        // An explicit `null` name selects the same way as omission.
+        let v = call_fn(&Load, &[json!(p.to_string_lossy()), Value::Null]).unwrap();
+        assert_eq!(v, tensor(&[2, 2], &[1.0, 2.0, 3.0, 4.0]));
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn load_named_from_multi_tensor_file() {
+        let p = write_st(
+            "multi",
+            &safetensors(&[
+                ("a", "F64", &[2], f64s(&[1.0, 2.0])),
+                ("b", "F64", &[3], f64s(&[3.0, 4.0, 5.0])),
+            ]),
+        );
+        let path = p.to_string_lossy().to_string();
+        let v = call_fn(&Load, &[json!(path), json!("b")]).unwrap();
+        assert_eq!(v, tensor(&[3], &[3.0, 4.0, 5.0]));
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn load_unnamed_multi_tensor_errors_naming_keys() {
+        let p = write_st(
+            "multi-err",
+            &safetensors(&[
+                ("a", "F64", &[1], f64s(&[1.0])),
+                ("b", "F64", &[1], f64s(&[2.0])),
+            ]),
+        );
+        let err = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("tensor.load"), "{msg}");
+        assert!(msg.contains("\"a\"") && msg.contains("\"b\""), "{msg}");
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn load_f32_widens_to_f64() {
+        let p = write_st(
+            "f32",
+            &safetensors(&[("w", "F32", &[3], f32s(&[0.5, -1.25, 3.0]))]),
+        );
+        let v = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap();
+        assert_eq!(v, tensor(&[3], &[0.5, -1.25, 3.0]));
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn load_rejects_unsupported_dtype() {
+        for dtype in ["I64", "F16", "BF16", "BOOL"] {
+            let p = write_st(
+                &format!("dtype-{dtype}"),
+                &safetensors(&[("w", dtype, &[1], f64s(&[1.0]))]),
+            );
+            let err = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap_err();
+            assert!(format!("{err}").contains(dtype), "{err}");
+            std::fs::remove_dir_all(p.parent().unwrap()).ok();
+        }
+    }
+
+    #[test]
+    fn load_missing_file_names_path() {
+        let err = call_fn(&Load, &[json!("/nonexistent/dir/nope.safetensors")]).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("tensor.load"), "{msg}");
+        assert!(msg.contains("nope.safetensors"), "{msg}");
+    }
+
+    #[test]
+    fn load_missing_name_errors() {
+        let p = write_st(
+            "missing-name",
+            &safetensors(&[("w", "F64", &[1], f64s(&[1.0]))]),
+        );
+        let err = call_fn(&Load, &[json!(p.to_string_lossy()), json!("nope")]).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("nope"), "{msg}");
+        assert!(msg.contains("\"w\""), "{msg}");
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn load_nonfinite_elements_tag_on_wire() {
+        let p = write_st(
+            "nonfinite",
+            &safetensors(&[("w", "F64", &[3], f64s(&[f64::NAN, f64::INFINITY, 1.0]))]),
+        );
+        let v = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap();
+        assert_eq!(v["__tensor__"]["data"][0], nonfinite("nan"));
+        assert_eq!(v["__tensor__"]["data"][1], nonfinite("inf"));
+        // And the decoded tensor carries the real values.
+        let t = decode_tensor(&v).unwrap();
+        assert!(t.data[0].is_nan());
+        assert_eq!(t.data[1], f64::INFINITY);
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn load_tensor_load_dir_env_base() {
+        let dir = std::env::temp_dir().join(format!("host-tensor-load-env-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("rel.safetensors"),
+            safetensors(&[("w", "F64", &[2], f64s(&[7.0, 8.0]))]),
+        )
+        .unwrap();
+        // SAFETY: single-threaded w.r.t. other `tensor.load` tests —
+        // every other test passes an absolute path, which bypasses
+        // `TENSOR_LOAD_DIR` entirely.
+        unsafe { std::env::set_var("TENSOR_LOAD_DIR", &dir) };
+        let v = call_fn(&Load, &[json!("rel.safetensors")]).unwrap();
+        unsafe { std::env::remove_var("TENSOR_LOAD_DIR") };
+        assert_eq!(v, tensor(&[2], &[7.0, 8.0]));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn load_rejects_bad_args_and_truncated_files() {
+        // Arity / arg types.
+        assert!(call_fn(&Load, &[]).is_err());
+        assert!(call_fn(&Load, &[json!(42)]).is_err());
+        assert!(call_fn(&Load, &[json!("x"), json!(7)]).is_err());
+        // Truncated / non-safetensors bytes.
+        let p = write_st("trunc", &[0u8; 4]);
+        assert!(call_fn(&Load, &[json!(p.to_string_lossy())]).is_err());
+        let p2 = write_st("badjson", &[0u8; 8]);
+        assert!(call_fn(&Load, &[json!(p2.to_string_lossy())]).is_err());
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
+        std::fs::remove_dir_all(p2.parent().unwrap()).ok();
+        // Direct parse checks: header len beyond EOF, payload OOB.
+        assert!(parse_safetensors(&[0xff; 8], "mem", None).is_err());
+        let mut bad = (4u64).to_le_bytes().to_vec();
+        bad.extend_from_slice(b"null"); // valid JSON, not an object
+        assert!(parse_safetensors(&bad, "mem", None).is_err());
     }
 }

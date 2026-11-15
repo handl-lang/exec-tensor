@@ -4,8 +4,8 @@ Host-side tensor functions for handl runtimes — a dense n-d `f64` array
 (row-major) behind the `tensor.*` op surface. Runtimes compose this
 component to give `.hnl` code tensor ops; catopt is the first consumer.
 
-The surface (238 `tensor.*` ops declared in `src/index.hnl` — the single
-source of truth): a 31-op handwritten core (construction, projection,
+The surface (239 `tensor.*` ops declared in `src/index.hnl` — the single
+source of truth): a 32-op handwritten core (construction, projection,
 elementwise algebra, `matmul`/`linear`, NCHW conv/pool/norm, shape ops,
 and their `*_backward` adjoints) plus a ~200-op generated ATen catalog
 (`src/ops/aten_generated.rs` + `aten_kernels.rs`) with a few declared
@@ -44,6 +44,7 @@ seams that fail loudly. The core ops:
 | `tensor.transpose_backward` | `(Tensor * Int * Int * Tensor) -> Value` | adjoint of `transpose`: `(input, d0, d1, grad_out)` → `{input}` |
 | `tensor.concat_backward` | `(Array * Int * Tensor) -> Value` | adjoint of `concat`: `(xs, axis, grad_out)` → `{xs}` — per-input slices |
 | `tensor.derive` | `String -> Value` | registered adjoint op name for `name`, or `null` |
+| `tensor.load` | `Value... -> Tensor` | `load(path[, name])` — read one tensor out of a safetensors sidecar |
 
 **Broadcasting** — the elementwise four (`add`/`mul`/`sub`/`div`)
 follow numpy rules: trailing dims align, a `1`-dim stretches, a missing
@@ -113,6 +114,22 @@ machinery outside this component: a source-to-source AD pass over the
 `.hnl` AST (kit/language layer — the AST never crosses the `Function`
 boundary) or a reverse-mode tape in the eval engine over
 `Tensor`-aware primitives. Deferred; the pairs table is the surface.
+
+**`tensor.load` — the out-of-band weight channel** (`load(path)`,
+`load(path, name)`). Reads a **safetensors** file — 8-byte little-endian
+header length + JSON header `{name: {dtype, shape, data_offsets}}` +
+raw LE payload — and returns one tensor whose shape comes from the file
+header, never the call site. `name` selects a header key; omitted, the
+file must hold exactly one tensor (else the error names the keys). dtype
+`"F64"` is the identity and `"F32"` widens `f32 → f64` on ingest;
+`F16`/`BF16`/`I64`/`BOOL`/… fail loudly (extending is a match arm, not a
+format change). Non-finite elements ride the binary channel natively and
+re-encode through the `__nonfinite__` wire tags. Relative `path`
+resolves against `$TENSOR_LOAD_DIR` when set — the base dir for stdin
+evals (`hnl-run -` has no artifact directory, so `.hnl` +
+`.safetensors` stay relocatable as a pair) — else the process cwd;
+absolute paths pass through. See
+`host:project/reports/tensor_load_spike.md`.
 
 **Tensor wire value** — data on the `serde_json::Value` boundary, tagged in
 the `__bytes__` style (ADR-0083 §2.1); a plain object to engines with no
