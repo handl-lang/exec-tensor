@@ -124,7 +124,11 @@ file must hold exactly one tensor (else the error names the keys). dtype
 `"F64"` is the identity and `"F32"` widens `f32 → f64` on ingest;
 `F16`/`BF16`/`I64`/`BOOL`/… fail loudly (extending is a match arm, not a
 format change). Non-finite elements ride the binary channel natively and
-re-encode through the `__nonfinite__` wire tags. Relative `path`
+re-encode through the `__nonfinite__` wire tags. Since ADR-0179 a tensor
+with `numel >= 4096` (`handl_value::TENSOR_BIN_THRESHOLD`) skips the
+decode entirely: the safetensors payload range *is* little-endian
+`F32`/`F64`, so `tensor.load` returns the `__tensor_bin__` wire record
+straight from the ranged read. Relative `path`
 resolves against `$TENSOR_LOAD_DIR` when set — the base dir for stdin
 evals (`hnl-run -` has no artifact directory, so `.hnl` +
 `.safetensors` stay relocatable as a pair) — else the process cwd;
@@ -146,6 +150,17 @@ convention as `__tensor__` itself; `serde_json` has no non-finite
 number literal). Decode accepts both spellings, so non-finite results
 (e.g. `tensor.div` by zero) round-trip exactly; `tensor.from_list`
 accepts the tags and `tensor.to_list` emits them.
+
+**Binary `data` spelling (ADR-0179).** `data` may instead be
+`{"__tensor_bin__": "<base64 little-endian payload>"}` with a required
+`"dtype": "f32"|"f64"` and `payload.len() == numel × itemsize`; encoders
+emit it iff `numel >= 4096` (`handl_value::TENSOR_BIN_THRESHOLD`), below
+which the wire is byte-identical to the array form. Non-finite elements
+ride raw IEEE bits. `decode_tensor` widens `f32 → f64` exactly (every
+op still computes `Vec<f64>` — [`Tensor`] is unchanged), and a malformed
+bin record is a `TypeMismatch`. Process-boundary printers must call
+`handl_value::materialize_tensor_bin` before serializing so `data` is
+always a list (`hnl-run` does).
 
 ## Composition
 
@@ -214,17 +229,20 @@ params)~~, ~~broadcasting `add`/`mul`/`sub`/`div`~~,
 ~~`tensor.derive`~~ (landed as a registered-pairs table + eleven adjoints —
 `.hnl`-function autodiff is the deferred half; see the finding below),
 ~~`TaggedValue::Tensor`~~ (landed — see the finding below), and dtype
-promotion beyond `f64`.
+promotion beyond `f64`/`f32` storage (ADR-0179 landed the
+`F64`/`F32`-preserving `handl-value` `TensorData`; the per-op lattice
+and a dtype-carrying `Tensor` here are still deferred).
 
 **dtype promotion is a kernel-first change, then a per-op lattice.**
-The wire field exists (`"dtype": "f64"`; decode accepts only `f64`,
-absent defaults to it), so the wire shape needs nothing. The real work
-is two layers: `handl-value`'s `TensorValue` is `Vec<f64>` — a second
-dtype means an enum payload + codec there (a kernel slice again, same
-shape the `Tensor` variant took); then here `Tensor.data: Vec<f64>`
-becomes an enum (`F64(Vec<f64>)`, `I64(Vec<i64>)`, …) and every op picks
-a rule per pair — numpy-style promotion, or same-dtype-only with an
-error on mixing (simpler, and what this component should probably do:
+ADR-0179 landed the kernel half scoped to the two sidecar dtypes:
+`handl-value`'s `TensorValue.data` is now `Rc<TensorData>`
+(`F64`/`F32`, f64-widening equality) and the `__tensor_bin__` wire
+spelling carries `"dtype": "f32"|"f64"` — but `Tensor.data` here stays
+`Vec<f64>` (decode widens per call; compute is bit-identical f64). The
+remaining work for a real lattice is `Tensor.data` becoming an enum
+(`F64(Vec<f64>)`, `I64(Vec<i64>)`, …) and every op picking a rule per
+pair — numpy-style promotion, or same-dtype-only with an error on
+mixing (simpler, and what this component should probably do:
 promotion lattices are where the bugs live). The odometer/index code is
 dtype-agnostic; only the element type and the `f` closures change.
 

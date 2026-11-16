@@ -114,7 +114,7 @@ fn tree_walk_zeros_returns_tagged_tensor() {
     match value {
         TaggedValue::Tensor(t) => {
             assert_eq!(t.shape, vec![2, 3]);
-            assert_eq!(t.data.as_slice(), &[0.0; 6]);
+            assert_eq!(t.data.to_f64_vec().as_slice(), &[0.0; 6]);
         }
         other => panic!("expected TaggedValue::Tensor, got {other:?}"),
     }
@@ -142,7 +142,7 @@ fn tree_walk_matmul_returns_tagged_tensor() {
     match value {
         TaggedValue::Tensor(t) => {
             assert_eq!(t.shape, vec![2, 2]);
-            assert_eq!(t.data.as_slice(), &[19.0, 22.0, 43.0, 50.0]);
+            assert_eq!(t.data.to_f64_vec().as_slice(), &[19.0, 22.0, 43.0, 50.0]);
         }
         other => panic!("expected TaggedValue::Tensor, got {other:?}"),
     }

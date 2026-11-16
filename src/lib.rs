@@ -16,7 +16,10 @@
 //!
 //! The tensor value is data on the `serde_json::Value` boundary —
 //! `{"__tensor__": {"shape": [d, ...], "data": [x, ...], "dtype": "f64"}}`
-//! — so no engine or language change is required to carry it. Engines
+//! (or the ADR-0179 binary spelling `"data": {"__tensor_bin__":
+//! "<base64 LE>"}` with `"dtype": "f32"|"f64"`, emitted iff
+//! `numel >= 4096`) — so no engine or language change is required to
+//! carry it. Engines
 //! with the kernel `TaggedValue::Tensor` decode the tag at the `call_host`
 //! boundary; engines without it see a plain object.
 

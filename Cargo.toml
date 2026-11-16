@@ -19,6 +19,10 @@ crate-type = ["rlib", "cdylib"]
 handl-platform = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-plugin-lib-handl = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-lib-ops = { git = "https://github.com/handl-lang/kernel", branch = "main" }
+# handl-value — the `__tensor_bin__` wire codec + `TENSOR_BIN_THRESHOLD`
+# (ADR-0179): decode_tensor's binary arm, encode_tensor's large-tensor
+# spelling, and tensor.load's payload-as-wire path.
+handl-value = { git = "https://github.com/handl-lang/kernel", branch = "main" }
 serde_json = "1"
 pyo3 = { version = "0.26", optional = true }
 
@@ -40,7 +44,6 @@ serde_yaml = "0.9"
 # decode to `TaggedValue::Tensor` inside the engine — not just across the
 # `serde_json::Value` module chain `tests/compose.rs` covers.
 handl-language = { git = "https://github.com/handl-lang/kernel", branch = "main" }
-handl-value = { git = "https://github.com/handl-lang/kernel", branch = "main" }
 handl-runtime = { git = "https://github.com/handl-lang/host", branch = "main" }
 handl-kit-data-prelude = { git = "https://github.com/handl-lang/kit-data-prelude", branch = "main" }
 hnl-engine-lex-pattern = { git = "https://github.com/handl-lang/engine-lex-pattern", branch = "main" }

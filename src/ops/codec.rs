@@ -16,7 +16,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use handl_platform::{EvalContext, EvalError, Function};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 // ---------------------------------------------------------------------------
 // The tensor codec
@@ -74,22 +74,29 @@ fn encode_f64(x: f64) -> Value {
 }
 
 /// Decode a tensor argument. Accepts `{"__tensor__": {"shape": [...],
-/// "data": [...], "dtype"?: "f64"}}`; anything else — a missing tag, a
-/// non-array shape/data, a negative or non-integer extent, a data
+/// "data": [...], "dtype"?: "f64"}}` and, since ADR-0179, the binary
+/// spelling `"data": {"__tensor_bin__": "<base64 LE>"}` with a required
+/// `"dtype": "f32"|"f64"` — the payload widens `f32 → f64` exactly, so
+/// [`Tensor`] stays `Vec<f64>` either way. Anything else — a missing
+/// tag, a non-array shape, a negative or non-integer extent, a data
 /// element that is neither a number nor a valid `{"__nonfinite__": …}`
-/// tag, a data length that is not `product(shape)`, or a `dtype` other
-/// than `"f64"` — is a `TypeMismatch` (malformed wire value) rather
-/// than a silent coercion.
+/// tag, a bad base64/length `__tensor_bin__` payload, a `dtype` that
+/// does not match the `data` spelling (`"f64"`/absent for the array
+/// form, `"f32"`/`"f64"` for the binary form), or a data length that
+/// is not `product(shape)` — is a `TypeMismatch` (malformed wire
+/// value) rather than a silent coercion.
 pub(crate) fn decode_tensor(arg: &Value) -> Result<Tensor, EvalError> {
     let inner = arg
         .get("__tensor__")
         .and_then(Value::as_object)
         .ok_or_else(|| type_mismatch("Tensor", "non-Tensor"))?;
-    if let Some(dtype) = inner.get("dtype") {
-        if dtype.as_str() != Some("f64") {
-            return Err(type_mismatch("dtype \"f64\"", "other dtype"));
-        }
-    }
+    let dtype = match inner.get("dtype") {
+        None => None,
+        Some(d) => Some(
+            d.as_str()
+                .ok_or_else(|| type_mismatch("dtype \"f64\"", "other dtype"))?,
+        ),
+    };
     let shape_val = inner
         .get("shape")
         .ok_or_else(|| type_mismatch("tensor.shape field", "missing"))?;
@@ -108,17 +115,39 @@ pub(crate) fn decode_tensor(arg: &Value) -> Result<Tensor, EvalError> {
     let data_val = inner
         .get("data")
         .ok_or_else(|| type_mismatch("tensor.data field", "missing"))?;
-    let data_arr = data_val
-        .as_array()
-        .ok_or_else(|| type_mismatch("data: array", "non-array"))?;
-    let mut data = Vec::with_capacity(data_arr.len());
-    for x in data_arr {
-        data.push(
-            decode_f64(x).ok_or_else(|| {
+    let data: Vec<f64> = if data_val.is_object() {
+        // Binary spelling (ADR-0179): `{"__tensor_bin__": "<base64 LE>"}`
+        // — `dtype` is required and must be "f32" or "f64"; the decoded
+        // payload widens to the f64 `Tensor` (f32→f64 is exact).
+        let dt = dtype
+            .ok_or_else(|| type_mismatch("dtype \"f32\"|\"f64\" for __tensor_bin__", "missing"))?;
+        if dt != "f32" && dt != "f64" {
+            return Err(type_mismatch(
+                "dtype \"f32\"|\"f64\" for __tensor_bin__",
+                "other dtype",
+            ));
+        }
+        handl_value::tensor_bin_decode(&shape, dt, data_val)
+            .map(|td| td.to_f64_vec())
+            .ok_or_else(|| type_mismatch("__tensor_bin__ payload", "malformed"))?
+    } else {
+        // Array spelling: `dtype` is optional but only `"f64"` is legal —
+        // the array carries widened f64 elements (an "f32" array is
+        // malformed).
+        if dtype.is_some_and(|d| d != "f64") {
+            return Err(type_mismatch("dtype \"f64\"", "other dtype"));
+        }
+        let data_arr = data_val
+            .as_array()
+            .ok_or_else(|| type_mismatch("data: array", "non-array"))?;
+        let mut data = Vec::with_capacity(data_arr.len());
+        for x in data_arr {
+            data.push(decode_f64(x).ok_or_else(|| {
                 type_mismatch("data: numbers or __nonfinite__ tags", "non-number")
-            })?,
-        );
-    }
+            })?);
+        }
+        data
+    };
     let expected = shape.iter().product::<usize>();
     if data.len() != expected {
         return Err(EvalError::Other(format!(
@@ -148,11 +177,24 @@ pub(crate) fn require_tensor(args: &[Value], pos: usize) -> Result<Tensor, EvalE
 ///
 /// Note the boundary asymmetry that remains: the kernel
 /// `TaggedValue::Tensor` carries non-finite `f64`s inside an engine,
-/// but the *kernel-side* `TaggedValue`↔`Value` codec (handl-value,
-/// kernel repo) still renders them as `null` — such a payload decodes
-/// here as a plain object rather than a `Tensor`, and a host op fed
-/// that object still round-trips the tags correctly.
+/// but other `Value` egress points must call
+/// `handl_value::materialize_tensor_bin` before printing or they emit
+/// the ADR-0179 binary spelling (see `hnl-run`).
+///
+/// ADR-0179: tensors with `numel >= TENSOR_BIN_THRESHOLD` encode as
+/// the binary `{"__tensor_bin__": "<base64 LE f64>"}` spelling with
+/// `dtype: "f64"` — [`decode_tensor`] reads both forms, so the wire is
+/// symmetric. Below the threshold the encoding is byte-identical to
+/// the pre-ADR array form.
 pub(crate) fn encode_tensor(t: Tensor) -> Value {
+    if t.data.len() >= handl_value::TENSOR_BIN_THRESHOLD {
+        let payload: Vec<u8> = t.data.iter().flat_map(|x| x.to_le_bytes()).collect();
+        // The length invariant makes this infallible; fall through to
+        // the array form defensively if it ever isn't.
+        if let Some(v) = handl_value::tensor_bin_record(&t.shape, "f64", &payload) {
+            return v;
+        }
+    }
     let data: Vec<Value> = t.data.iter().map(|&x| encode_f64(x)).collect();
     json!({
         "__tensor__": {
@@ -210,7 +252,12 @@ pub(crate) fn row_major_strides(shape: &[usize]) -> Vec<usize> {
 
 /// Check the argument count is in `min..=max` (variadic ops cannot use
 /// `require_arg_count`).
-pub(crate) fn require_arg_range(args: &[Value], min: usize, max: usize, op: &str) -> Result<(), EvalError> {
+pub(crate) fn require_arg_range(
+    args: &[Value],
+    min: usize,
+    max: usize,
+    op: &str,
+) -> Result<(), EvalError> {
     if args.len() < min || args.len() > max {
         return Err(EvalError::TypeMismatch(format!(
             "{op}: expected {min}..={max} args, got {}",
@@ -486,7 +533,7 @@ impl Function for Load {
             ),
             _ => None,
         };
-        Ok(encode_tensor(load_safetensors(path, name)?))
+        Ok(load_safetensors(path, name)?)
     }
 }
 
@@ -515,17 +562,22 @@ struct StEntry {
 }
 
 /// Read the safetensors file at `path`, returning the tensor named
-/// `name` (or the file's only tensor when `name` is `None`).
+/// `name` (or the file's only tensor when `name` is `None`) as the
+/// `{"__tensor__": …}` wire record.
 ///
 /// Memory profile: only the 8-byte length prefix, the JSON header, and
 /// the *requested tensor's* payload range are read — never the whole
 /// file.  A llama-scale sidecar is one multi-GB file holding hundreds
 /// of tensors; `std::fs::read` of it per call was the dominant
 /// transient (the allocator retains the arena, so RSS stayed at
-/// file-size after the first `tensor.load`).  The f64 widening on
-/// ingest is the wire contract (`Tensor.data: Vec<f64>`,
-/// `dtype: "f64"`), not something this op can shed.
-fn load_safetensors(path: &str, name: Option<&str>) -> Result<Tensor, EvalError> {
+/// file-size after the first `tensor.load`).
+///
+/// ADR-0179: tensors with `numel >= TENSOR_BIN_THRESHOLD` skip the
+/// decode entirely — the safetensors payload range *is* little-endian
+/// `F32`/`F64`, so the `__tensor_bin__` record is emitted straight from
+/// the ranged read (base64 of the raw bytes, `dtype: "f32"|"f64"`).
+/// Smaller tensors keep the decode→`encode_tensor` path.
+fn load_safetensors(path: &str, name: Option<&str>) -> Result<Value, EvalError> {
     let resolved = resolve_load_path(path);
     let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
     let mut file = std::fs::File::open(&resolved).map_err(|e| {
@@ -566,9 +618,40 @@ fn load_safetensors(path: &str, name: Option<&str>) -> Result<Tensor, EvalError>
             payload_len
         )));
     }
+    // Validate dtype + payload size up front (the same check
+    // `entry_decode_plan` applies on the decode path) — unsupported
+    // dtypes stay named errors before any payload read.
+    let (elem_size, _, expected) = entry_decode_plan(chosen, path)?;
+    let nbytes = chosen.end - chosen.begin;
+    if nbytes != expected {
+        return Err(err(format!(
+            "payload {} bytes != {} elements × {elem_size}B for shape {:?}",
+            nbytes,
+            chosen.shape.iter().product::<usize>(),
+            chosen.shape
+        )));
+    }
     file.seek(SeekFrom::Start(hend + chosen.begin as u64))
         .map_err(|e| err(format!("cannot seek to tensor payload: {e}")))?;
-    decode_entry_streaming(&mut file, chosen, path)
+
+    let numel: usize = chosen.shape.iter().product();
+    if numel >= handl_value::TENSOR_BIN_THRESHOLD {
+        // ADR-0179 large path: the payload bytes ARE the wire payload —
+        // read the range once and emit the `__tensor_bin__` record
+        // without decoding (no f32→f64 widen, no JSON array).
+        let mut payload = vec![0u8; nbytes];
+        file.read_exact(&mut payload)
+            .map_err(|e| err(format!("cannot read tensor payload: {e}")))?;
+        let wire_dtype = match chosen.dtype.as_str() {
+            "F64" => "f64",
+            "F32" => "f32",
+            // entry_decode_plan already rejected every other dtype.
+            other => return Err(err(format!("unsupported dtype {other:?}"))),
+        };
+        return handl_value::tensor_bin_record(&chosen.shape, wire_dtype, &payload)
+            .ok_or_else(|| err("internal: __tensor_bin__ record encode failed".to_string()));
+    }
+    decode_entry_streaming(&mut file, chosen, path).map(encode_tensor)
 }
 
 /// Parse safetensors bytes: `u64le header_len`, JSON header, raw LE
@@ -1180,5 +1263,127 @@ mod tests {
         let mut bad = (4u64).to_le_bytes().to_vec();
         bad.extend_from_slice(b"null"); // valid JSON, not an object
         assert!(parse_safetensors(&bad, "mem", None).is_err());
+    }
+
+    // ── ADR-0179 binary `__tensor_bin__` wire spelling ────────────────
+
+    /// LE bytes for a slice of f32/f64 (the safetensors payload
+    /// spelling `__tensor_bin__` carries).
+    fn le_bytes_f32(xs: &[f32]) -> Vec<u8> {
+        xs.iter().flat_map(|x| x.to_le_bytes()).collect()
+    }
+    fn le_bytes_f64(xs: &[f64]) -> Vec<u8> {
+        xs.iter().flat_map(|x| x.to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn decode_bin_f32_widens_to_f64() {
+        let rec =
+            handl_value::tensor_bin_record(&[2, 2], "f32", &le_bytes_f32(&[1.5, -2.0, 0.5, 4.0]))
+                .unwrap();
+        let t = decode_tensor(&rec).unwrap();
+        assert_eq!(t.shape, vec![2, 2]);
+        assert_eq!(t.data, vec![1.5, -2.0, 0.5, 4.0]);
+    }
+
+    #[test]
+    fn decode_bin_f64_preserves_values() {
+        let rec =
+            handl_value::tensor_bin_record(&[3], "f64", &le_bytes_f64(&[f64::NAN, 2.0, -0.0]))
+                .unwrap();
+        let t = decode_tensor(&rec).unwrap();
+        assert!(t.data[0].is_nan());
+        assert_eq!(t.data[1], 2.0);
+        assert_eq!(t.data[2].to_bits(), (-0.0f64).to_bits());
+    }
+
+    #[test]
+    fn decode_rejects_malformed_bin() {
+        // Bad base64.
+        let bad_b64 = json!({"__tensor__": {"shape": [2], "dtype": "f32",
+            "data": {"__tensor_bin__": "!!!"}}});
+        assert!(matches!(
+            decode_tensor(&bad_b64),
+            Err(EvalError::TypeMismatch(_))
+        ));
+        // Payload length != numel × itemsize (a [2] record relabeled [4]).
+        let short = handl_value::tensor_bin_record(&[2], "f32", &le_bytes_f32(&[1.0, 2.0]))
+            .map(|mut v| {
+                v["__tensor__"]["shape"] = json!([4]);
+                v
+            })
+            .unwrap();
+        assert!(decode_tensor(&short).is_err());
+        // dtype absent — the binary spelling requires it.
+        let no_dtype = json!({"__tensor__": {"shape": [2],
+            "data": {"__tensor_bin__": "AAAAAAAAAAA="}}});
+        assert!(decode_tensor(&no_dtype).is_err());
+        // Unsupported dtype on the bin spelling.
+        let bad_dtype = json!({"__tensor__": {"shape": [2], "dtype": "i32",
+            "data": {"__tensor_bin__": "AAAAAAAAAAA="}}});
+        assert!(decode_tensor(&bad_dtype).is_err());
+        // "f32" + array data is malformed (the array spelling is f64).
+        let f32_array = json!({"__tensor__": {"shape": [2], "dtype": "f32", "data": [1.0, 2.0]}});
+        assert!(decode_tensor(&f32_array).is_err());
+    }
+
+    #[test]
+    fn encode_emits_bin_at_threshold() {
+        let n = handl_value::TENSOR_BIN_THRESHOLD;
+        let big = Tensor {
+            shape: vec![n],
+            data: vec![1.5; n],
+        };
+        let v = encode_tensor(big.clone());
+        assert_eq!(v["__tensor__"]["dtype"], json!("f64"));
+        assert!(v["__tensor__"]["data"]["__tensor_bin__"].is_string());
+        // And it decodes back to the same tensor.
+        assert_eq!(decode_tensor(&v).unwrap(), big);
+        // Below the threshold the array form is unchanged.
+        let small = Tensor {
+            shape: vec![n - 1],
+            data: vec![1.5; n - 1],
+        };
+        let v = encode_tensor(small);
+        assert!(v["__tensor__"]["data"].is_array());
+    }
+
+    #[test]
+    fn load_large_tensor_returns_bin_record() {
+        // numel >= TENSOR_BIN_THRESHOLD → the wire record carries the
+        // raw safetensors payload as __tensor_bin__ (no decode): an
+        // F32 sidecar keeps dtype "f32".
+        let n = handl_value::TENSOR_BIN_THRESHOLD;
+        let xs: Vec<f32> = (0..n).map(|i| i as f32 * 0.5).collect();
+        let p = write_st(
+            "big-f32",
+            &safetensors(&[("w", "F32", &[n], le_bytes_f32(&xs))]),
+        );
+        let v = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap();
+        assert_eq!(v["__tensor__"]["dtype"], json!("f32"));
+        assert!(v["__tensor__"]["data"]["__tensor_bin__"].is_string());
+        // The record decodes through the same codec every op uses.
+        let t = decode_tensor(&v).unwrap();
+        assert_eq!(t.shape, vec![n]);
+        assert_eq!(t.data.len(), n);
+        assert_eq!(t.data[0], 0.0);
+        assert_eq!(t.data[1], 0.5);
+        assert_eq!(t.data[n - 1], (n - 1) as f32 as f64 * 0.5);
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn load_small_tensor_stays_array_form() {
+        // Below the threshold tensor.load is byte-identical to before:
+        // decode → f64 array wire record.
+        let p = write_st(
+            "small-f32",
+            &safetensors(&[("w", "F32", &[3], f32s(&[0.5, -1.25, 3.0]))]),
+        );
+        let v = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap();
+        assert_eq!(v["__tensor__"]["dtype"], json!("f64"));
+        assert!(v["__tensor__"]["data"].is_array());
+        assert_eq!(v, tensor(&[3], &[0.5, -1.25, 3.0]));
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
     }
 }

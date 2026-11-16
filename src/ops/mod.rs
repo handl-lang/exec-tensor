@@ -31,7 +31,10 @@
 //! `data` the flat row-major payload (`data.len() == product(shape)`; a
 //! non-finite element spells as `{"__nonfinite__": "nan" | "inf" |
 //! "-inf"}` since JSON has no NaN/±inf literal), `dtype` the element type
-//! — optional on decode, `"f64"` the only value accepted for now.
+//! — optional on decode for the array spelling (`"f64"` the only value
+//! accepted), required `"f32"|"f64"` on the ADR-0179 binary spelling
+//! `"data": {"__tensor_bin__": "<base64 LE>"}` (emitted iff
+//! `numel >= 4096`).
 //! Engines with no `Tensor` scalar see an ordinary object; engines with
 //! the kernel `TaggedValue::Tensor` decode the tag at the `call_host`
 //! boundary and carry the tensor opaquely.
