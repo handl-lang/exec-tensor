@@ -12,6 +12,7 @@
 //! The boundary ops live here too: [`Zeros`], [`Ones`], [`FromList`]
 //! construct wire tensors; [`ToList`], [`Shape`] project them.
 
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use handl_platform::{EvalContext, EvalError, Function};
@@ -448,6 +449,9 @@ fn nest(shape: &[usize], data: &mut impl Iterator<Item = f64>) -> Value {
 // host:project/reports/tensor_load_spike.md): 8-byte LE header length +
 // JSON header `{name: {dtype, shape, data_offsets}}` + raw little-endian
 // payload.  Shape comes from the file header, never the call site.
+// Reads are ranged — header plus only the requested tensor's payload
+// slice, decoded in chunks — so a multi-GB sidecar never lands in RAM
+// whole (llama-scale verify-runs: see host's llama_e2e_retry.md).
 //
 // Path resolution: absolute paths pass through; relative paths resolve
 // against `$TENSOR_LOAD_DIR` when set (the stdin-eval wrinkle —
@@ -510,21 +514,68 @@ struct StEntry {
     end: usize,
 }
 
-/// Read + parse the safetensors file at `path`, returning the tensor
-/// named `name` (or the file's only tensor when `name` is `None`).
+/// Read the safetensors file at `path`, returning the tensor named
+/// `name` (or the file's only tensor when `name` is `None`).
+///
+/// Memory profile: only the 8-byte length prefix, the JSON header, and
+/// the *requested tensor's* payload range are read — never the whole
+/// file.  A llama-scale sidecar is one multi-GB file holding hundreds
+/// of tensors; `std::fs::read` of it per call was the dominant
+/// transient (the allocator retains the arena, so RSS stayed at
+/// file-size after the first `tensor.load`).  The f64 widening on
+/// ingest is the wire contract (`Tensor.data: Vec<f64>`,
+/// `dtype: "f64"`), not something this op can shed.
 fn load_safetensors(path: &str, name: Option<&str>) -> Result<Tensor, EvalError> {
     let resolved = resolve_load_path(path);
-    let bytes = std::fs::read(&resolved).map_err(|e| {
+    let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
+    let mut file = std::fs::File::open(&resolved).map_err(|e| {
         EvalError::Other(format!(
             "tensor.load: cannot read {path} (resolved {}): {e}",
             resolved.display()
         ))
     })?;
-    parse_safetensors(&bytes, path, name)
+    let file_len = file
+        .metadata()
+        .map_err(|e| err(format!("cannot stat {path}: {e}")))?
+        .len();
+
+    let mut lenbuf = [0u8; 8];
+    file.read_exact(&mut lenbuf)
+        .map_err(|_| err("truncated — no 8-byte header length".to_string()))?;
+    let hlen = u64::from_le_bytes(lenbuf);
+    let hlen =
+        usize::try_from(hlen).map_err(|_| err("header length overflows usize".to_string()))?;
+    // The header must fit inside the file — check BEFORE allocating so a
+    // corrupt length prefix cannot ask for a multi-GB buffer.
+    let hend = 8u64
+        .checked_add(hlen as u64)
+        .filter(|&e| e <= file_len)
+        .ok_or_else(|| err("truncated header".to_string()))?;
+    let mut hbuf = vec![0u8; hlen];
+    file.read_exact(&mut hbuf)
+        .map_err(|_| err("truncated header".to_string()))?;
+
+    let entries = parse_header(&hbuf, path)?;
+    let chosen = choose_entry(&entries, name, path)?;
+
+    let payload_len = file_len - hend;
+    if chosen.end as u64 > payload_len || chosen.begin > chosen.end {
+        return Err(err(format!(
+            "data_offsets {:?} out of bounds (payload {} bytes)",
+            [chosen.begin, chosen.end],
+            payload_len
+        )));
+    }
+    file.seek(SeekFrom::Start(hend + chosen.begin as u64))
+        .map_err(|e| err(format!("cannot seek to tensor payload: {e}")))?;
+    decode_entry_streaming(&mut file, chosen, path)
 }
 
 /// Parse safetensors bytes: `u64le header_len`, JSON header, raw LE
 /// payload.  All failures are `EvalError::Other` naming `path` + reason.
+/// Test-only: the op path goes through [`load_safetensors`]'s ranged
+/// reads, which never materialize the whole file.
+#[cfg(test)]
 fn parse_safetensors(bytes: &[u8], path: &str, name: Option<&str>) -> Result<Tensor, EvalError> {
     let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
     if bytes.len() < 8 {
@@ -535,13 +586,30 @@ fn parse_safetensors(bytes: &[u8], path: &str, name: Option<&str>) -> Result<Ten
         .checked_add(hlen)
         .filter(|&e| e <= bytes.len())
         .ok_or_else(|| err("truncated header".to_string()))?;
-    let header: Value = serde_json::from_slice(&bytes[8..hend])
+    let entries = parse_header(&bytes[8..hend], path)?;
+    let chosen = choose_entry(&entries, name, path)?;
+
+    let payload = &bytes[hend..];
+    if chosen.end > payload.len() || chosen.begin > chosen.end {
+        return Err(err(format!(
+            "data_offsets {:?} out of bounds (payload {} bytes)",
+            [chosen.begin, chosen.end],
+            payload.len()
+        )));
+    }
+    decode_entry(chosen, &payload[chosen.begin..chosen.end], path)
+}
+
+/// Parse the JSON header object into `(name, entry)` pairs — every
+/// non-`__metadata__` key is a tensor entry.
+fn parse_header(header_bytes: &[u8], path: &str) -> Result<Vec<(String, StEntry)>, EvalError> {
+    let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
+    let header: Value = serde_json::from_slice(header_bytes)
         .map_err(|e| err(format!("header is not valid JSON: {e}")))?;
     let obj = header
         .as_object()
         .ok_or_else(|| err("header is not a JSON object".to_string()))?;
 
-    // Every non-`__metadata__` key is a tensor entry.
     let mut entries: Vec<(String, StEntry)> = Vec::with_capacity(obj.len());
     for (key, val) in obj {
         if key == "__metadata__" {
@@ -594,8 +662,18 @@ fn parse_safetensors(bytes: &[u8], path: &str, name: Option<&str>) -> Result<Ten
             },
         ));
     }
+    Ok(entries)
+}
 
-    let chosen: &StEntry = match name {
+/// Select the requested entry: `name`, or the file's only tensor when
+/// `name` is `None`.
+fn choose_entry<'a>(
+    entries: &'a [(String, StEntry)],
+    name: Option<&str>,
+    path: &str,
+) -> Result<&'a StEntry, EvalError> {
+    let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
+    match name {
         Some(want) => entries
             .iter()
             .find(|(k, _)| k == want)
@@ -603,29 +681,93 @@ fn parse_safetensors(bytes: &[u8], path: &str, name: Option<&str>) -> Result<Ten
             .ok_or_else(|| {
                 let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
                 err(format!("no tensor named {want:?} — file holds {keys:?}"))
-            })?,
-        None => match entries.as_slice() {
-            [(_, only)] => only,
-            [] => return Err(err("file holds no tensors".to_string())),
+            }),
+        None => match entries {
+            [(_, only)] => Ok(only),
+            [] => Err(err("file holds no tensors".to_string())),
             _ => {
                 let keys: Vec<&str> = entries.iter().map(|(k, _)| k.as_str()).collect();
-                return Err(err(format!(
+                Err(err(format!(
                     "file holds {} tensors {keys:?} — pass a name",
                     keys.len()
-                )));
+                )))
             }
         },
-    };
+    }
+}
 
-    let payload = &bytes[hend..];
-    if chosen.end > payload.len() || chosen.begin > chosen.end {
+/// Decode one tensor's payload bytes (`chosen.begin..chosen.end`,
+/// already bounds-checked by the caller) into the f64 `Tensor`.
+#[cfg(test)]
+fn decode_entry(chosen: &StEntry, bytes_of: &[u8], path: &str) -> Result<Tensor, EvalError> {
+    let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
+    let (elem_size, decode, expected) = entry_decode_plan(chosen, path)?;
+    if bytes_of.len() != expected {
         return Err(err(format!(
-            "data_offsets {:?} out of bounds (payload {} bytes)",
-            [chosen.begin, chosen.end],
-            payload.len()
+            "payload {} bytes != {} elements × {elem_size}B for shape {:?}",
+            bytes_of.len(),
+            chosen.shape.iter().product::<usize>(),
+            chosen.shape
         )));
     }
-    let bytes_of = &payload[chosen.begin..chosen.end];
+    let data: Vec<f64> = bytes_of.chunks_exact(elem_size).map(decode).collect();
+    Ok(Tensor {
+        shape: chosen.shape.clone(),
+        data,
+    })
+}
+
+/// Stream-decode the payload range the file cursor sits at: read +
+/// decode in fixed-size chunks so the transient stays O(chunk +
+/// output), never O(tensor payload).  The range length is validated
+/// against `shape × dtype` before the first read, same check
+/// [`decode_entry`] applies to a materialized slice.
+fn decode_entry_streaming(
+    file: &mut std::fs::File,
+    chosen: &StEntry,
+    path: &str,
+) -> Result<Tensor, EvalError> {
+    /// Read granularity — a multiple of both supported element sizes.
+    const CHUNK: usize = 1 << 20;
+    let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
+    let (elem_size, decode, expected) = entry_decode_plan(chosen, path)?;
+    let nbytes = chosen.end - chosen.begin;
+    if nbytes != expected {
+        return Err(err(format!(
+            "payload {} bytes != {} elements × {elem_size}B for shape {:?}",
+            nbytes,
+            chosen.shape.iter().product::<usize>(),
+            chosen.shape
+        )));
+    }
+    let numel: usize = chosen.shape.iter().product();
+    let mut data: Vec<f64> = Vec::with_capacity(numel);
+    let mut buf = vec![0u8; CHUNK];
+    let mut remaining = expected;
+    while remaining > 0 {
+        // `remaining` and `CHUNK` are both multiples of `elem_size`,
+        // so `take` always is too.
+        let take = remaining.min(CHUNK);
+        file.read_exact(&mut buf[..take])
+            .map_err(|e| err(format!("cannot read tensor payload: {e}")))?;
+        for c in buf[..take].chunks_exact(elem_size) {
+            data.push(decode(c));
+        }
+        remaining -= take;
+    }
+    Ok(Tensor {
+        shape: chosen.shape.clone(),
+        data,
+    })
+}
+
+/// Resolve the entry's dtype/shape to `(elem_size, decoder, expected
+/// payload bytes)` — the shared validation both decode paths apply.
+fn entry_decode_plan(
+    chosen: &StEntry,
+    path: &str,
+) -> Result<(usize, fn(&[u8]) -> f64, usize), EvalError> {
+    let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
     let numel: usize = chosen.shape.iter().product();
     let (elem_size, decode): (usize, fn(&[u8]) -> f64) = match chosen.dtype.as_str() {
         "F64" => (8, |b| f64::from_le_bytes(b.try_into().unwrap())),
@@ -639,19 +781,7 @@ fn parse_safetensors(bytes: &[u8], path: &str, name: Option<&str>) -> Result<Ten
     let expected = numel
         .checked_mul(elem_size)
         .ok_or_else(|| err("shape extent overflows usize".to_string()))?;
-    if bytes_of.len() != expected {
-        return Err(err(format!(
-            "payload {} bytes != {} elements × {elem_size}B for shape {:?}",
-            bytes_of.len(),
-            numel,
-            chosen.shape
-        )));
-    }
-    let data: Vec<f64> = bytes_of.chunks_exact(elem_size).map(decode).collect();
-    Ok(Tensor {
-        shape: chosen.shape.clone(),
-        data,
-    })
+    Ok((elem_size, decode, expected))
 }
 
 /// The Rust handl for `op "tensor.shape" : Tensor -> (List Int)`.
