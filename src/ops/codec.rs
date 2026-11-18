@@ -12,8 +12,11 @@
 //! The boundary ops live here too: [`Zeros`], [`Ones`], [`FromList`]
 //! construct wire tensors; [`ToList`], [`Shape`] project them.
 
+use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::SystemTime;
 
 use handl_platform::{EvalContext, EvalError, Function};
 use serde_json::{json, Value};
@@ -533,7 +536,7 @@ impl Function for Load {
             ),
             _ => None,
         };
-        Ok(load_safetensors(path, name)?)
+        Ok(load_safetensors_cached(path, name)?)
     }
 }
 
@@ -561,6 +564,91 @@ struct StEntry {
     end: usize,
 }
 
+/// `tensor.load` result cache — `HOST_TENSOR_CACHE`.
+///
+/// `.hnl` artifacts re-evaluate the whole program per call, and every
+/// eval re-runs each `tensor.load`: the ranged reads are cheap per
+/// tensor but the header parse + payload read + (for ≥4096-element
+/// tensors) the `__tensor_bin__` base64 encode repeat for weights that
+/// are, by safetensors convention, immutable.  With
+/// `HOST_TENSOR_CACHE=1` the *encoded wire `Value`* is memoized per
+/// process — a hit is one `Value` clone (the base64 string memcpy)
+/// instead of open+stat+header+read+encode.  Default OFF: unset,
+/// empty, or `0`/`false`/`no`/`off` (case-insensitive) all leave the
+/// read-every-call behavior unchanged.
+///
+/// The key carries the resolved path, the requested tensor name, and
+/// the file's `(len, mtime)` — cheap insurance against a sidecar
+/// being rewritten in place (same path, different bytes → different
+/// key → reload).  Cached values are the immutable wire records, so
+/// sharing them across calls is sound; the map is bounded (cleared
+/// past [`LOAD_CACHE_CAP`]) and mutex-guarded for multi-threaded eval.
+const LOAD_CACHE_ENV: &str = "HOST_TENSOR_CACHE";
+
+/// Entry cap — weight sidecars bind tens-to-hundreds of tensors; past
+/// this the map is cleared wholesale rather than LRU-evicting (a
+/// partial clear would be just as correct, simpler is fine).
+const LOAD_CACHE_CAP: usize = 1024;
+
+/// `(resolved path, tensor name, file len, file mtime)` — see the
+/// [`load_safetensors_cached`] docs for why each component is there.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct LoadCacheKey {
+    path: PathBuf,
+    name: Option<String>,
+    len: u64,
+    mtime: Option<SystemTime>,
+}
+
+fn load_cache() -> &'static Mutex<HashMap<LoadCacheKey, Value>> {
+    static CACHE: OnceLock<Mutex<HashMap<LoadCacheKey, Value>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Whether `HOST_TENSOR_CACHE` opts in — see the module note above.
+fn load_cache_enabled() -> bool {
+    match std::env::var(LOAD_CACHE_ENV) {
+        Ok(v) => !matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "" | "0" | "false" | "no" | "off"
+        ),
+        Err(_) => false,
+    }
+}
+
+/// `tensor.load` entry point: the cached wrapper around
+/// [`load_safetensors`].  With the cache off (the default) this is a
+/// straight pass-through.  With it on, the file is stat'ed first —
+/// the `(len, mtime)` pair keys the entry — and a hit returns the
+/// memoized wire `Value` without touching the payload again.  Stat
+/// failures fall through to the uncached path so error messages stay
+/// canonical.
+fn load_safetensors_cached(path: &str, name: Option<&str>) -> Result<Value, EvalError> {
+    if !load_cache_enabled() {
+        return load_safetensors(path, name);
+    }
+    let resolved = resolve_load_path(path);
+    let Ok(meta) = std::fs::metadata(&resolved) else {
+        return load_safetensors(path, name);
+    };
+    let key = LoadCacheKey {
+        path: resolved.clone(),
+        name: name.map(str::to_string),
+        len: meta.len(),
+        mtime: meta.modified().ok(),
+    };
+    if let Some(v) = load_cache().lock().unwrap().get(&key) {
+        return Ok(v.clone());
+    }
+    let v = load_safetensors_at(&resolved, path, name)?;
+    let mut cache = load_cache().lock().unwrap();
+    if cache.len() >= LOAD_CACHE_CAP {
+        cache.clear();
+    }
+    cache.insert(key, v.clone());
+    Ok(v)
+}
+
 /// Read the safetensors file at `path`, returning the tensor named
 /// `name` (or the file's only tensor when `name` is `None`) as the
 /// `{"__tensor__": …}` wire record.
@@ -579,8 +667,15 @@ struct StEntry {
 /// Smaller tensors keep the decode→`encode_tensor` path.
 fn load_safetensors(path: &str, name: Option<&str>) -> Result<Value, EvalError> {
     let resolved = resolve_load_path(path);
+    load_safetensors_at(&resolved, path, name)
+}
+
+/// `resolved` is the [`resolve_load_path`] output — factored out so the
+/// [`load_safetensors_cached`] fast path can stat-then-key without
+/// resolving twice.
+fn load_safetensors_at(resolved: &Path, path: &str, name: Option<&str>) -> Result<Value, EvalError> {
     let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
-    let mut file = std::fs::File::open(&resolved).map_err(|e| {
+    let mut file = std::fs::File::open(resolved).map_err(|e| {
         EvalError::Other(format!(
             "tensor.load: cannot read {path} (resolved {}): {e}",
             resolved.display()
@@ -1384,6 +1479,100 @@ mod tests {
         assert_eq!(v["__tensor__"]["dtype"], json!("f64"));
         assert!(v["__tensor__"]["data"].is_array());
         assert_eq!(v, tensor(&[3], &[0.5, -1.25, 3.0]));
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
+    }
+
+    // ── HOST_TENSOR_CACHE — the tensor.load result cache ─────────────
+
+    /// `HOST_TENSOR_CACHE` is process-global; serialize the tests that
+    /// mutate it (the `TENSOR_LOAD_DIR` test above gets away without a
+    /// lock only because no other test reads that var).
+    static CACHE_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Set `HOST_TENSOR_CACHE` for the test body; the guard restores
+    /// the prior state on drop.
+    struct CacheEnv(Option<String>);
+    impl CacheEnv {
+        fn set(v: &str) -> Self {
+            let prev = std::env::var(LOAD_CACHE_ENV).ok();
+            // SAFETY: serialized by CACHE_ENV_LOCK — no other test
+            // thread reads or writes HOST_TENSOR_CACHE concurrently.
+            unsafe { std::env::set_var(LOAD_CACHE_ENV, v) };
+            Self(prev)
+        }
+    }
+    impl Drop for CacheEnv {
+        fn drop(&mut self) {
+            // SAFETY: same serialization argument as `set`.
+            unsafe {
+                match &self.0 {
+                    Some(prev) => std::env::set_var(LOAD_CACHE_ENV, prev),
+                    None => std::env::remove_var(LOAD_CACHE_ENV),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn load_cache_off_by_default() {
+        let _g = CACHE_ENV_LOCK.lock().unwrap();
+        let _env = CacheEnv::set("0");
+        let p = write_st(
+            "cache-off",
+            &safetensors(&[("w", "F64", &[2], f64s(&[1.0, 2.0]))]),
+        );
+        let before = load_cache().lock().unwrap().len();
+        let v1 = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap();
+        let v2 = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap();
+        assert_eq!(v1, v2);
+        // Disabled: nothing was memoized.
+        assert_eq!(load_cache().lock().unwrap().len(), before);
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn load_cache_hits_and_invalidates_on_rewrite() {
+        let _g = CACHE_ENV_LOCK.lock().unwrap();
+        let _env = CacheEnv::set("1");
+        let p = write_st(
+            "cache-hit",
+            &safetensors(&[("w", "F64", &[2], f64s(&[1.0, 2.0]))]),
+        );
+        let v1 = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap();
+        let cached_len = load_cache().lock().unwrap().len();
+        assert!(cached_len >= 1, "first load should populate the cache");
+        // Second call: same key → memoized wire Value, byte-identical.
+        let v2 = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap();
+        assert_eq!(v1, v2);
+        // Rewrite the sidecar with different content AND a different
+        // length — the (len, mtime) key must miss and reload.
+        std::fs::write(
+            &p,
+            safetensors(&[("w", "F64", &[3], f64s(&[9.0, 8.0, 7.0]))]),
+        )
+        .unwrap();
+        let v3 = call_fn(&Load, &[json!(p.to_string_lossy())]).unwrap();
+        assert_eq!(v3, tensor(&[3], &[9.0, 8.0, 7.0]));
+        std::fs::remove_dir_all(p.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn load_cache_named_entries_are_distinct() {
+        let _g = CACHE_ENV_LOCK.lock().unwrap();
+        let _env = CacheEnv::set("yes");
+        let p = write_st(
+            "cache-names",
+            &safetensors(&[
+                ("a", "F64", &[1], f64s(&[1.0])),
+                ("b", "F64", &[1], f64s(&[2.0])),
+            ]),
+        );
+        let va = call_fn(&Load, &[json!(p.to_string_lossy()), json!("a")]).unwrap();
+        let vb = call_fn(&Load, &[json!(p.to_string_lossy()), json!("b")]).unwrap();
+        assert_eq!(va, tensor(&[1], &[1.0]));
+        assert_eq!(vb, tensor(&[1], &[2.0]));
+        // Both (path, name) pairs memoized independently.
+        assert!(load_cache().lock().unwrap().len() >= 2);
         std::fs::remove_dir_all(p.parent().unwrap()).ok();
     }
 }
