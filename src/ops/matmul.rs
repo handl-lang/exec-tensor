@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 
 use super::codec::{Tensor, encode_tensor, require_tensor};
 use super::elementwise::{broadcast_elementwise, unbroadcast};
+use super::f32path;
 use super::shape_ops::transpose_dims;
 
 /// The checked operand geometry of `matmul(a, b)`: ranks ∈ {2, 3}, the
@@ -68,6 +69,48 @@ fn matmul_dims(a: &Tensor, b: &Tensor, op: &str) -> Result<MatmulDims, EvalError
 
 /// The product itself, given validated [`MatmulDims`].
 fn matmul_compute(a: &Tensor, b: &Tensor, d: &MatmulDims) -> Tensor {
+    if f32path::enabled() {
+        return matmul_compute_f32(a, b, d);
+    }
+    matmul_compute_f64(a, b, d)
+}
+
+/// The `f32` twin of [`matmul_compute`] — see [`f32path`] for the gate
+/// and the convert/widen contract.
+fn matmul_compute_f32(a: &Tensor, b: &Tensor, d: &MatmulDims) -> Tensor {
+    let av = f32path::to_f32(&a.data);
+    let bv = f32path::to_f32(&b.data);
+    let (a_slab, b_slab) = (d.m * d.k, d.k * d.n);
+    let mut out = vec![0f32; d.batch * d.m * d.n];
+    for bi in 0..d.batch {
+        let a_off = if d.b_a == 1 { 0 } else { bi * a_slab };
+        let b_off = if d.b_b == 1 { 0 } else { bi * b_slab };
+        let out_off = bi * d.m * d.n;
+        for i in 0..d.m {
+            for l in 0..d.k {
+                let a_il = av[a_off + i * d.k + l];
+                if a_il == 0.0 {
+                    continue;
+                }
+                for j in 0..d.n {
+                    out[out_off + i * d.n + j] += a_il * bv[b_off + l * d.n + j];
+                }
+            }
+        }
+    }
+    let shape = if d.batched {
+        vec![d.batch, d.m, d.n]
+    } else {
+        vec![d.m, d.n]
+    };
+    Tensor {
+        shape,
+        data: f32path::widen(out),
+    }
+}
+
+/// The `f64` product — the default path.
+fn matmul_compute_f64(a: &Tensor, b: &Tensor, d: &MatmulDims) -> Tensor {
     let (a_slab, b_slab) = (d.m * d.k, d.k * d.n);
     let mut data = vec![0.0; d.batch * d.m * d.n];
     for bi in 0..d.batch {
