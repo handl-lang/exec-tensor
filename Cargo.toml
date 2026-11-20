@@ -5,6 +5,11 @@ edition = "2024"
 description = "Host-side tensor functions for handl runtimes — an n-d dense array (f64) behind the `tensor.*` op surface."
 license = "MIT"
 repository = "https://github.com/handl-lang/host-tensor"
+readme = "README.md"
+keywords = ["handl", "tensor"]
+categories = ["science"]
+homepage = "https://handl-lang.github.io/docs/host-tensor/"
+documentation = "https://handl-lang.github.io/docs/host-tensor/"
 
 [lib]
 name = "handl_host_tensor"

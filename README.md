@@ -267,12 +267,10 @@ carrying NaN/±inf degrades to a plain `Obj` at the boundary (the tag
 objects survive verbatim inside it, and host ops fed the object decode
 them exactly). Closing that half is a kernel-repo change.
 
+## License
+
+MIT.
+
 ## Documentation
 
-Published site (Diátaxis): <https://handl-lang.github.io/docs/host-tensor/>
-
-- [Reference](https://handl-lang.github.io/docs/host-tensor/reference/) — public API surface
-- [How-to](https://handl-lang.github.io/docs/host-tensor/how-to/) — task recipes
-- [Explanation](https://handl-lang.github.io/docs/host-tensor/explanation/) — design and rationale
-
-Decision records live on the `project` branch under `project/adrs/`.
+<https://handl-lang.github.io/docs/host-tensor/>
