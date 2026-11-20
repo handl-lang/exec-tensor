@@ -40,6 +40,7 @@ use serde_json::{Value, json};
 
 use super::codec::{Tensor, decode_tensor, encode_tensor, row_major_strides};
 use super::elementwise::broadcast_elementwise;
+use super::f32path;
 use super::shape_ops::transpose_dims;
 
 pub(crate) fn op_err(op: &str, msg: impl std::fmt::Display) -> EvalError {
@@ -619,6 +620,9 @@ pub(crate) fn cum_along(t: &Tensor, dim: i64, prod: bool, op: &str) -> Result<Te
 
 /// `softmax`/`log_softmax` along required `dim`.
 pub(crate) fn softmax_dim(t: &Tensor, dim: i64, log: bool, op: &str) -> Result<Tensor, EvalError> {
+    if f32path::enabled() {
+        return softmax_dim_f32(t, dim, log, op);
+    }
     let d = wrap_dim(dim, t.shape.len(), op)?;
     let rank = t.shape.len();
     let width = t.shape[d];
@@ -652,6 +656,39 @@ pub(crate) fn softmax_dim(t: &Tensor, dim: i64, log: bool, op: &str) -> Result<T
     Ok(Tensor {
         shape: t.shape.clone(),
         data,
+    })
+}
+
+/// The `f32` twin of [`softmax_dim`] — same max-subtract + `exp`/`ln`
+/// recipe in single precision; see [`f32path`] for the gate.
+fn softmax_dim_f32(t: &Tensor, dim: i64, log: bool, op: &str) -> Result<Tensor, EvalError> {
+    let d = wrap_dim(dim, t.shape.len(), op)?;
+    let width = t.shape[d];
+    let tail: usize = t.shape[d + 1..].iter().product();
+    let outer: usize = t.shape[..d].iter().product();
+    let src = f32path::to_f32(&t.data);
+    let mut out = vec![0f32; src.len()];
+    for o in 0..outer {
+        for j in 0..tail {
+            let base = (o * width) * tail + j;
+            let mut mx = f32::NEG_INFINITY;
+            for i in 0..width {
+                mx = mx.max(src[base + i * tail]);
+            }
+            let mut sum = 0f32;
+            for i in 0..width {
+                sum += (src[base + i * tail] - mx).exp();
+            }
+            let lse = mx + sum.ln();
+            for i in 0..width {
+                let x = src[base + i * tail];
+                out[base + i * tail] = if log { x - lse } else { (x - lse).exp() };
+            }
+        }
+    }
+    Ok(Tensor {
+        shape: t.shape.clone(),
+        data: f32path::widen(out),
     })
 }
 
@@ -2618,6 +2655,9 @@ pub(crate) fn k_rms_norm(t: &Tensor, shape: &[i64], weight: Option<Tensor>, eps:
     }
     let inner: usize = ns.iter().product();
     let outer: usize = t.shape[..off].iter().product();
+    if f32path::enabled() {
+        return rms_norm_f32(t, inner, outer, weight, eps);
+    }
     // Per outer-slice: mean of squares over the trailing `inner` block
     // (the normalized dims are contiguous trailing — true only if they
     // are the LAST dims, which normalized_shape guarantees as suffix).
@@ -2631,6 +2671,38 @@ pub(crate) fn k_rms_norm(t: &Tensor, shape: &[i64], weight: Option<Tensor>, eps:
         }
     }
     let mut out = Tensor { shape: t.shape.clone(), data };
+    if let Some(w) = weight {
+        out = broadcast_elementwise(&out, &w, "tensor.rms_norm", |x, ww| x * ww)?;
+    }
+    Ok(out)
+}
+
+/// The `f32` twin of [`k_rms_norm`]'s normalize+affine tail — the
+/// `normalized_shape` validation already ran in the caller; `inner`/
+/// `outer` are its products.  The weight affine stays on the shared
+/// `f64` broadcast path (elementwise — see [`f32path`]).
+fn rms_norm_f32(
+    t: &Tensor,
+    inner: usize,
+    outer: usize,
+    weight: Option<Tensor>,
+    eps: f64,
+) -> Result<Tensor, EvalError> {
+    let eps32 = eps as f32;
+    let src = f32path::to_f32(&t.data);
+    let mut data = src.clone();
+    for o in 0..outer {
+        let base = o * inner;
+        let ms = src[base..base + inner].iter().map(|x| x * x).sum::<f32>() / inner as f32;
+        let rstd = 1.0 / (ms + eps32).sqrt();
+        for v in &mut data[base..base + inner] {
+            *v *= rstd;
+        }
+    }
+    let mut out = Tensor {
+        shape: t.shape.clone(),
+        data: f32path::widen(data),
+    };
     if let Some(w) = weight {
         out = broadcast_elementwise(&out, &w, "tensor.rms_norm", |x, ww| x * ww)?;
     }
@@ -2816,6 +2888,9 @@ fn mm2(a: &Tensor, b: &Tensor, op: &str) -> Result<Tensor, EvalError> {
     if a.shape[1] != b.shape[0] {
         return Err(op_err(op, format!("inner dim mismatch {k} vs {}", b.shape[0])));
     }
+    if f32path::enabled() {
+        return Ok(mm2_f32(a, b));
+    }
     let mut data = vec![0.0; m * n];
     for i in 0..m {
         for l in 0..k {
@@ -2829,6 +2904,29 @@ fn mm2(a: &Tensor, b: &Tensor, op: &str) -> Result<Tensor, EvalError> {
         }
     }
     Ok(Tensor { shape: vec![m, n], data })
+}
+
+/// The `f32` twin of [`mm2`] — see [`f32path`] for the gate.
+fn mm2_f32(a: &Tensor, b: &Tensor) -> Tensor {
+    let (m, k, n) = (a.shape[0], a.shape[1], b.shape[1]);
+    let av = f32path::to_f32(&a.data);
+    let bv = f32path::to_f32(&b.data);
+    let mut out = vec![0f32; m * n];
+    for i in 0..m {
+        for l in 0..k {
+            let a_il = av[i * k + l];
+            if a_il == 0.0 {
+                continue;
+            }
+            for j in 0..n {
+                out[i * n + j] += a_il * bv[l * n + j];
+            }
+        }
+    }
+    Tensor {
+        shape: vec![m, n],
+        data: f32path::widen(out),
+    }
 }
 
 /// `mm` — rank-2 product.
@@ -2845,6 +2943,28 @@ pub(crate) fn k_bmm(a: &Tensor, b: &Tensor) -> Result<Tensor, EvalError> {
         return Err(op_err("bmm", format!("shape mismatch {:?} x {:?}", a.shape, b.shape)));
     }
     let (batch, m, k, n) = (a.shape[0], a.shape[1], a.shape[2], b.shape[2]);
+    if f32path::enabled() {
+        let av = f32path::to_f32(&a.data);
+        let bv = f32path::to_f32(&b.data);
+        let mut out = vec![0f32; batch * m * n];
+        for bi in 0..batch {
+            for i in 0..m {
+                for l in 0..k {
+                    let a_il = av[(bi * m + i) * k + l];
+                    if a_il == 0.0 {
+                        continue;
+                    }
+                    for j in 0..n {
+                        out[(bi * m + i) * n + j] += a_il * bv[(bi * k + l) * n + j];
+                    }
+                }
+            }
+        }
+        return Ok(Tensor {
+            shape: vec![batch, m, n],
+            data: f32path::widen(out),
+        });
+    }
     let mut data = vec![0.0; batch * m * n];
     for bi in 0..batch {
         for i in 0..m {
@@ -2896,6 +3016,20 @@ pub(crate) fn k_mv(a: &Tensor, v: &Tensor) -> Result<Tensor, EvalError> {
     if v.shape[0] != k {
         return Err(op_err("mv", format!("vec length {} != k {k}", v.shape[0])));
     }
+    if f32path::enabled() {
+        let av = f32path::to_f32(&a.data);
+        let vv = f32path::to_f32(&v.data);
+        let mut out = vec![0f32; m];
+        for i in 0..m {
+            for l in 0..k {
+                out[i] += av[i * k + l] * vv[l];
+            }
+        }
+        return Ok(Tensor {
+            shape: vec![m],
+            data: f32path::widen(out),
+        });
+    }
     let mut data = vec![0.0; m];
     for i in 0..m {
         for l in 0..k {
@@ -2909,6 +3043,18 @@ pub(crate) fn k_mv(a: &Tensor, v: &Tensor) -> Result<Tensor, EvalError> {
 pub(crate) fn k_dot(a: &Tensor, b: &Tensor) -> Result<Tensor, EvalError> {
     if a.data.len() != b.data.len() {
         return Err(op_err("dot", format!("length mismatch {} vs {}", a.data.len(), b.data.len())));
+    }
+    if f32path::enabled() {
+        let s: f32 = a
+            .data
+            .iter()
+            .zip(&b.data)
+            .map(|(&x, &y)| (x as f32) * (y as f32))
+            .sum();
+        return Ok(Tensor {
+            shape: vec![],
+            data: vec![f64::from(s)],
+        });
     }
     let s: f64 = a.data.iter().zip(&b.data).map(|(&x, &y)| x * y).sum();
     Ok(Tensor { shape: vec![], data: vec![s] })

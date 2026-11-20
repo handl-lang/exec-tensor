@@ -49,6 +49,7 @@ pub mod codec;
 pub mod conv;
 pub mod derive;
 pub mod elementwise;
+pub mod f32path;
 pub mod matmul;
 pub mod norm;
 pub mod shape_ops;
