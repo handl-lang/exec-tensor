@@ -8,7 +8,7 @@
 
 [[repos]]
 name = "handl-lang/host-tensor"
-dir = "/home/luis/GitHub/handl-lang/host-tensor"
+dir = "~/GitHub/handl-lang/host-tensor"
 branch = "refs/heads/main"
   [repos.runner]
   kind = "script"
