@@ -50,7 +50,7 @@ serde_yaml = "0.9"
 # `serde_json::Value` module chain `tests/compose.rs` covers.
 handl-language = { git = "https://github.com/handl-lang/kernel", branch = "main" }
 handl-runtime = { git = "https://github.com/handl-lang/host", branch = "main" }
-handl-kit-data-prelude = { git = "https://github.com/handl-lang/kit-data-prelude", branch = "main" }
+handl-kit-data-prelude = { git = "https://github.com/handl-lang/host", branch = "main" }
 hnl-engine-lex-pattern = { git = "https://github.com/handl-lang/engine-lex-pattern", branch = "main" }
 hnl-engine-parse-pratt = { git = "https://github.com/handl-lang/engine-parse-pratt", branch = "main" }
 hnl-engine-exec = { git = "https://github.com/handl-lang/engine-exec", branch = "main" }
@@ -95,11 +95,9 @@ handl-calculus = { path = "../kernel/crates/handl-calculus" }
 handl-language = { path = "../kernel/crates/handl-language" }
 handl-value = { path = "../kernel/crates/handl-value" }
 
-[patch."https://github.com/handl-lang/kit-data-prelude"]
-handl-kit-data-prelude = { path = "../kit-data-prelude/crates/handl-kit-data-prelude" }
-
 [patch."https://github.com/handl-lang/host"]
 handl-kit-data = { path = "../host/crates/handl-kit-data" }
+handl-kit-data-prelude = { path = "../host/crates/handl-kit-data-prelude" }
 handl-platform = { path = "../host/crates/platform" }
 handl-plugin-ext-diag = { path = "../host/crates/plugin-ext-diag" }
 handl-plugin-lib-handl = { path = "../host/crates/plugin-lib-handl" }
