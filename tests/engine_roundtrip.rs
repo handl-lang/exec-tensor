@@ -31,11 +31,11 @@ use handl_plugin_lib_handl::HandlModule;
 use handl_plugin_module::ModuleRegistry;
 use handl_runtime::Runtime;
 use handl_value::TaggedValue;
-use hnl_engine_exec::{EvalEngine, EvalRequest};
-use hnl_engine_exec_bytecode::BytecodeEngine;
-use hnl_engine_exec_tree_walk::TreeWalkEngine;
-use hnl_engine_lex_pattern::DataLexerEngine;
-use hnl_engine_parse_pratt::PrattEngine;
+use hnl_exec::{EvalEngine, EvalRequest};
+use hnl_exec_bytecode::BytecodeEngine;
+use hnl_exec_tree_walk::TreeWalkEngine;
+use hnl_tool_lex_pattern::DataLexerEngine;
+use hnl_tool_parse_pratt::PrattEngine;
 use serde_json::json;
 
 /// The canonical language (data-driven kit assembly — the same `Language`
