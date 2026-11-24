@@ -3,3 +3,5 @@
 
 # myco worktree mount point (created by `myco init`)
 project/
+xtask/target/
+xtask/Cargo.lock

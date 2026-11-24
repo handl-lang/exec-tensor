@@ -1,0 +1,965 @@
+# exec-tensor atom spec (P-013/T-149) — GENERATED, do not edit by hand.
+# Source of truth: src/index.hnl (`op`/`guarantee`/`handle` decls).
+# Regenerate: python3 tools/gen_atoms.py   Drift check: --check
+# Schema matches handl-plugin-lib-stdlib's atoms.yaml: `name` is the
+# dispatch key, `sig` the handl signature (~> canonical), `impl` the key
+# into the Rust impl table (`src/ops/mod.rs` `tensor_impls()`), `total`
+# the guarantee-clause replacement.
+module: tensor
+atoms:
+  - name: tensor.zeros
+    sig: "(List Int) ~> Tensor"
+    impl: rust_tensor_zeros
+    total: true
+  - name: tensor.ones
+    sig: "(List Int) ~> Tensor"
+    impl: rust_tensor_ones
+    total: true
+  - name: tensor.from_list
+    sig: "Array ~> Tensor"
+    impl: rust_tensor_from_list
+    total: true
+  - name: tensor.to_list
+    sig: "Tensor ~> Array"
+    impl: rust_tensor_to_list
+    total: true
+  - name: tensor.shape
+    sig: "Tensor ~> (List Int)"
+    impl: rust_tensor_shape
+    total: true
+  - name: tensor.add
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_tensor_add
+    total: true
+  - name: tensor.add_backward
+    sig: "(Tensor * Tensor * Tensor) ~> Value"
+    impl: rust_tensor_add_backward
+    total: true
+  - name: tensor.mul
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_tensor_mul
+    total: true
+  - name: tensor.mul_backward
+    sig: "(Tensor * Tensor * Tensor) ~> Value"
+    impl: rust_tensor_mul_backward
+    total: true
+  - name: tensor.sub
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_tensor_sub
+    total: true
+  - name: tensor.sub_backward
+    sig: "(Tensor * Tensor * Tensor) ~> Value"
+    impl: rust_tensor_sub_backward
+    total: true
+  - name: tensor.div
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_tensor_div
+    total: true
+  - name: tensor.div_backward
+    sig: "(Tensor * Tensor * Tensor) ~> Value"
+    impl: rust_tensor_div_backward
+    total: true
+  - name: tensor.matmul
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_tensor_matmul
+    total: true
+  - name: tensor.matmul_backward
+    sig: "(Tensor * Tensor * Tensor) ~> Value"
+    impl: rust_tensor_matmul_backward
+    total: true
+  - name: tensor.linear
+    sig: "(Tensor * Tensor * Tensor) ~> Tensor"
+    impl: rust_tensor_linear
+    total: true
+  - name: tensor.conv2d
+    sig: "Value... ~> Tensor"
+    impl: rust_tensor_conv2d
+    total: true
+  - name: tensor.conv2d_backward
+    sig: "Value... ~> Value"
+    impl: rust_tensor_conv2d_backward
+    total: true
+  - name: tensor.max_pool
+    sig: "Value... ~> Tensor"
+    impl: rust_tensor_max_pool
+    total: true
+  - name: tensor.max_pool_backward
+    sig: "Value... ~> Value"
+    impl: rust_tensor_max_pool_backward
+    total: true
+  - name: tensor.batch_norm
+    sig: "Value... ~> Tensor"
+    impl: rust_tensor_batch_norm
+    total: true
+  - name: tensor.reshape
+    sig: "(Tensor * (List Int)) ~> Tensor"
+    impl: rust_tensor_reshape
+    total: true
+  - name: tensor.reshape_backward
+    sig: "(Tensor * (List Int) * Tensor) ~> Value"
+    impl: rust_tensor_reshape_backward
+    total: true
+  - name: tensor.transpose
+    sig: "(Tensor * Int * Int) ~> Tensor"
+    impl: rust_tensor_transpose
+    total: true
+  - name: tensor.transpose_backward
+    sig: "(Tensor * Int * Int * Tensor) ~> Value"
+    impl: rust_tensor_transpose_backward
+    total: true
+  - name: tensor.unsqueeze
+    sig: "(Tensor * Int) ~> Tensor"
+    impl: rust_tensor_unsqueeze
+    total: true
+  - name: tensor.select
+    sig: "(Tensor * Int * Int) ~> Tensor"
+    impl: rust_tensor_select
+    total: true
+  - name: tensor.concat
+    sig: "(Array * Int) ~> Tensor"
+    impl: rust_tensor_concat
+    total: true
+  - name: tensor.concat_backward
+    sig: "(Array * Int * Tensor) ~> Value"
+    impl: rust_tensor_concat_backward
+    total: true
+  - name: tensor.batch_norm_backward
+    sig: "Value... ~> Value"
+    impl: rust_tensor_batch_norm_backward
+    total: true
+  - name: tensor.derive
+    sig: "String ~> Value"
+    impl: rust_tensor_derive
+    total: true
+  - name: tensor.load
+    sig: "Value... ~> Tensor"
+    impl: rust_tensor_load
+    total: true
+  - name: tensor.abs
+    sig: "Tensor ~> Tensor"
+    impl: rust_abs
+    total: true
+  - name: tensor.neg
+    sig: "Tensor ~> Tensor"
+    impl: rust_neg
+    total: true
+  - name: tensor.exp
+    sig: "Tensor ~> Tensor"
+    impl: rust_exp
+    total: true
+  - name: tensor.exp2
+    sig: "Tensor ~> Tensor"
+    impl: rust_exp2
+    total: true
+  - name: tensor.expm1
+    sig: "Tensor ~> Tensor"
+    impl: rust_expm1
+    total: true
+  - name: tensor.log
+    sig: "Tensor ~> Tensor"
+    impl: rust_log
+    total: true
+  - name: tensor.log1p
+    sig: "Tensor ~> Tensor"
+    impl: rust_log1p
+    total: true
+  - name: tensor.log2
+    sig: "Tensor ~> Tensor"
+    impl: rust_log2
+    total: true
+  - name: tensor.log10
+    sig: "Tensor ~> Tensor"
+    impl: rust_log10
+    total: true
+  - name: tensor.sqrt
+    sig: "Tensor ~> Tensor"
+    impl: rust_sqrt
+    total: true
+  - name: tensor.rsqrt
+    sig: "Tensor ~> Tensor"
+    impl: rust_rsqrt
+    total: true
+  - name: tensor.reciprocal
+    sig: "Tensor ~> Tensor"
+    impl: rust_reciprocal
+    total: true
+  - name: tensor.square
+    sig: "Tensor ~> Tensor"
+    impl: rust_square
+    total: true
+  - name: tensor.sin
+    sig: "Tensor ~> Tensor"
+    impl: rust_sin
+    total: true
+  - name: tensor.cos
+    sig: "Tensor ~> Tensor"
+    impl: rust_cos
+    total: true
+  - name: tensor.tan
+    sig: "Tensor ~> Tensor"
+    impl: rust_tan
+    total: true
+  - name: tensor.asin
+    sig: "Tensor ~> Tensor"
+    impl: rust_asin
+    total: true
+  - name: tensor.acos
+    sig: "Tensor ~> Tensor"
+    impl: rust_acos
+    total: true
+  - name: tensor.atan
+    sig: "Tensor ~> Tensor"
+    impl: rust_atan
+    total: true
+  - name: tensor.sinh
+    sig: "Tensor ~> Tensor"
+    impl: rust_sinh
+    total: true
+  - name: tensor.cosh
+    sig: "Tensor ~> Tensor"
+    impl: rust_cosh
+    total: true
+  - name: tensor.tanh
+    sig: "Tensor ~> Tensor"
+    impl: rust_tanh
+    total: true
+  - name: tensor.asinh
+    sig: "Tensor ~> Tensor"
+    impl: rust_asinh
+    total: true
+  - name: tensor.acosh
+    sig: "Tensor ~> Tensor"
+    impl: rust_acosh
+    total: true
+  - name: tensor.atanh
+    sig: "Tensor ~> Tensor"
+    impl: rust_atanh
+    total: true
+  - name: tensor.floor
+    sig: "Tensor ~> Tensor"
+    impl: rust_floor
+    total: true
+  - name: tensor.ceil
+    sig: "Tensor ~> Tensor"
+    impl: rust_ceil
+    total: true
+  - name: tensor.round
+    sig: "Tensor ~> Tensor"
+    impl: rust_round
+    total: true
+  - name: tensor.trunc
+    sig: "Tensor ~> Tensor"
+    impl: rust_trunc
+    total: true
+  - name: tensor.frac
+    sig: "Tensor ~> Tensor"
+    impl: rust_frac
+    total: true
+  - name: tensor.sign
+    sig: "Tensor ~> Tensor"
+    impl: rust_sign
+    total: true
+  - name: tensor.sigmoid
+    sig: "Tensor ~> Tensor"
+    impl: rust_sigmoid
+    total: true
+  - name: tensor.silu
+    sig: "Tensor ~> Tensor"
+    impl: rust_silu
+    total: true
+  - name: tensor.mish
+    sig: "Tensor ~> Tensor"
+    impl: rust_mish
+    total: true
+  - name: tensor.gelu
+    sig: "Value... ~> Tensor"
+    impl: rust_gelu
+    total: true
+  - name: tensor.relu
+    sig: "Tensor ~> Tensor"
+    impl: rust_relu
+    total: true
+  - name: tensor.selu
+    sig: "Tensor ~> Tensor"
+    impl: rust_selu
+    total: true
+  - name: tensor.elu
+    sig: "Value... ~> Tensor"
+    impl: rust_elu
+    total: true
+  - name: tensor.celu
+    sig: "Value... ~> Tensor"
+    impl: rust_celu
+    total: true
+  - name: tensor.leaky_relu
+    sig: "Value... ~> Tensor"
+    impl: rust_leaky_relu
+    total: true
+  - name: tensor.prelu
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_prelu
+    total: true
+  - name: tensor.softplus
+    sig: "Value... ~> Tensor"
+    impl: rust_softplus
+    total: true
+  - name: tensor.softshrink
+    sig: "Value... ~> Tensor"
+    impl: rust_softshrink
+    total: true
+  - name: tensor.hardshrink
+    sig: "Value... ~> Tensor"
+    impl: rust_hardshrink
+    total: true
+  - name: tensor.hardtanh
+    sig: "Value... ~> Tensor"
+    impl: rust_hardtanh
+    total: true
+  - name: tensor.threshold
+    sig: "(Tensor * Float * Float) ~> Tensor"
+    impl: rust_threshold
+    total: true
+  - name: tensor.erf
+    sig: "Tensor ~> Tensor"
+    impl: rust_erf
+    total: true
+  - name: tensor.erfc
+    sig: "Tensor ~> Tensor"
+    impl: rust_erfc
+    total: true
+  - name: tensor.sinc
+    sig: "Tensor ~> Tensor"
+    impl: rust_sinc
+    total: true
+  - name: tensor.deg2rad
+    sig: "Tensor ~> Tensor"
+    impl: rust_deg2rad
+    total: true
+  - name: tensor.rad2deg
+    sig: "Tensor ~> Tensor"
+    impl: rust_rad2deg
+    total: true
+  - name: tensor.logit
+    sig: "Value... ~> Tensor"
+    impl: rust_logit
+    total: true
+  - name: tensor.nan_to_num
+    sig: "Value... ~> Tensor"
+    impl: rust_nan_to_num
+    total: true
+  - name: tensor.heaviside
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_heaviside
+    total: true
+  - name: tensor.isfinite
+    sig: "Tensor ~> Tensor"
+    impl: rust_isfinite
+    total: true
+  - name: tensor.isinf
+    sig: "Tensor ~> Tensor"
+    impl: rust_isinf
+    total: true
+  - name: tensor.isnan
+    sig: "Tensor ~> Tensor"
+    impl: rust_isnan
+    total: true
+  - name: tensor.isposinf
+    sig: "Tensor ~> Tensor"
+    impl: rust_isposinf
+    total: true
+  - name: tensor.isneginf
+    sig: "Tensor ~> Tensor"
+    impl: rust_isneginf
+    total: true
+  - name: tensor.signbit
+    sig: "Tensor ~> Tensor"
+    impl: rust_signbit
+    total: true
+  - name: tensor.logical_not
+    sig: "Tensor ~> Tensor"
+    impl: rust_logical_not
+    total: true
+  - name: tensor.atan2
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_atan2
+    total: true
+  - name: tensor.hypot
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_hypot
+    total: true
+  - name: tensor.logaddexp
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_logaddexp
+    total: true
+  - name: tensor.logaddexp2
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_logaddexp2
+    total: true
+  - name: tensor.maximum
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_maximum
+    total: true
+  - name: tensor.minimum
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_minimum
+    total: true
+  - name: tensor.nextafter
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_nextafter
+    total: true
+  - name: tensor.fmod
+    sig: "Value... ~> Tensor"
+    impl: rust_fmod
+    total: true
+  - name: tensor.floor_divide
+    sig: "Value... ~> Tensor"
+    impl: rust_floor_divide
+    total: true
+  - name: tensor.copysign
+    sig: "Value... ~> Tensor"
+    impl: rust_copysign
+    total: true
+  - name: tensor.remainder
+    sig: "Value... ~> Tensor"
+    impl: rust_remainder
+    total: true
+  - name: tensor.pow
+    sig: "Value... ~> Tensor"
+    impl: rust_pow
+    total: true
+  - name: tensor.float_power
+    sig: "Value... ~> Tensor"
+    impl: rust_float_power
+    total: true
+  - name: tensor.eq
+    sig: "Value... ~> Tensor"
+    impl: rust_eq
+    total: true
+  - name: tensor.ne
+    sig: "Value... ~> Tensor"
+    impl: rust_ne
+    total: true
+  - name: tensor.lt
+    sig: "Value... ~> Tensor"
+    impl: rust_lt
+    total: true
+  - name: tensor.le
+    sig: "Value... ~> Tensor"
+    impl: rust_le
+    total: true
+  - name: tensor.gt
+    sig: "Value... ~> Tensor"
+    impl: rust_gt
+    total: true
+  - name: tensor.ge
+    sig: "Value... ~> Tensor"
+    impl: rust_ge
+    total: true
+  - name: tensor.where
+    sig: "Value... ~> Tensor"
+    impl: rust_where
+    total: true
+  - name: tensor.clamp
+    sig: "Value... ~> Tensor"
+    impl: rust_clamp
+    total: true
+  - name: tensor.clamp_min
+    sig: "(Tensor * Float) ~> Tensor"
+    impl: rust_clamp_min
+    total: true
+  - name: tensor.clamp_max
+    sig: "(Tensor * Float) ~> Tensor"
+    impl: rust_clamp_max
+    total: true
+  - name: tensor.lerp
+    sig: "Value... ~> Tensor"
+    impl: rust_lerp
+    total: true
+  - name: tensor.xlogy
+    sig: "Value... ~> Tensor"
+    impl: rust_xlogy
+    total: true
+  - name: tensor.logical_and
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_logical_and
+    total: true
+  - name: tensor.logical_or
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_logical_or
+    total: true
+  - name: tensor.logical_xor
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_logical_xor
+    total: true
+  - name: tensor.sum
+    sig: "Value... ~> Tensor"
+    impl: rust_sum
+    total: true
+  - name: tensor.prod
+    sig: "Value... ~> Tensor"
+    impl: rust_prod
+    total: true
+  - name: tensor.mean
+    sig: "Value... ~> Tensor"
+    impl: rust_mean
+    total: true
+  - name: tensor.var
+    sig: "Value... ~> Tensor"
+    impl: rust_var
+    total: true
+  - name: tensor.std
+    sig: "Value... ~> Tensor"
+    impl: rust_std
+    total: true
+  - name: tensor.amax
+    sig: "Value... ~> Tensor"
+    impl: rust_amax
+    total: true
+  - name: tensor.amin
+    sig: "Value... ~> Tensor"
+    impl: rust_amin
+    total: true
+  - name: tensor.argmax
+    sig: "Value... ~> Tensor"
+    impl: rust_argmax
+    total: true
+  - name: tensor.argmin
+    sig: "Value... ~> Tensor"
+    impl: rust_argmin
+    total: true
+  - name: tensor.logsumexp
+    sig: "Value... ~> Tensor"
+    impl: rust_logsumexp
+    total: true
+  - name: tensor.all
+    sig: "Value... ~> Tensor"
+    impl: rust_all
+    total: true
+  - name: tensor.any
+    sig: "Value... ~> Tensor"
+    impl: rust_any
+    total: true
+  - name: tensor.cumsum
+    sig: "(Tensor * Int) ~> Tensor"
+    impl: rust_cumsum
+    total: true
+  - name: tensor.cumprod
+    sig: "(Tensor * Int) ~> Tensor"
+    impl: rust_cumprod
+    total: true
+  - name: tensor.softmax
+    sig: "(Tensor * Int) ~> Tensor"
+    impl: rust_softmax
+    total: true
+  - name: tensor.log_softmax
+    sig: "(Tensor * Int) ~> Tensor"
+    impl: rust_log_softmax
+    total: true
+  - name: tensor.layer_norm
+    sig: "Value... ~> Tensor"
+    impl: rust_layer_norm
+    total: true
+  - name: tensor.rms_norm
+    sig: "Value... ~> Tensor"
+    impl: rust_rms_norm
+    total: true
+  - name: tensor.glu
+    sig: "Value... ~> Tensor"
+    impl: rust_glu
+    total: true
+  - name: tensor.sort
+    sig: "Value... ~> Value"
+    impl: rust_sort
+    total: true
+  - name: tensor.argsort
+    sig: "Value... ~> Tensor"
+    impl: rust_argsort
+    total: true
+  - name: tensor.topk
+    sig: "Value... ~> Value"
+    impl: rust_topk
+    total: true
+  - name: tensor.nonzero
+    sig: "Tensor ~> Tensor"
+    impl: rust_nonzero
+    total: true
+  - name: tensor.argwhere
+    sig: "Tensor ~> Tensor"
+    impl: rust_argwhere
+    total: true
+  - name: tensor.squeeze
+    sig: "Value... ~> Tensor"
+    impl: rust_squeeze
+    total: true
+  - name: tensor.index_select
+    sig: "(Tensor * Int * Tensor) ~> Tensor"
+    impl: rust_index_select
+    total: true
+  - name: tensor.gather
+    sig: "Value... ~> Tensor"
+    impl: rust_gather
+    total: true
+  - name: tensor.index_add
+    sig: "Value... ~> Tensor"
+    impl: rust_index_add
+    total: true
+  - name: tensor.index_fill
+    sig: "(Tensor * Int * Tensor * Float) ~> Tensor"
+    impl: rust_index_fill
+    total: true
+  - name: tensor.take
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_take
+    total: true
+  - name: tensor.flatten
+    sig: "Value... ~> Tensor"
+    impl: rust_flatten
+    total: true
+  - name: tensor.expand
+    sig: "Value... ~> Tensor"
+    impl: rust_expand
+    total: true
+  - name: tensor.expand_as
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_expand_as
+    total: true
+  - name: tensor.narrow
+    sig: "(Tensor * Int * Int * Int) ~> Tensor"
+    impl: rust_narrow
+    total: true
+  - name: tensor.slice
+    sig: "Value... ~> Tensor"
+    impl: rust_slice
+    total: true
+  - name: tensor.chunk
+    sig: "Value... ~> Array"
+    impl: rust_chunk
+    total: true
+  - name: tensor.split
+    sig: "Value... ~> Array"
+    impl: rust_split
+    total: true
+  - name: tensor.stack
+    sig: "Value... ~> Tensor"
+    impl: rust_stack
+    total: true
+  - name: tensor.unbind
+    sig: "Value... ~> Array"
+    impl: rust_unbind
+    total: true
+  - name: tensor.repeat
+    sig: "Value... ~> Tensor"
+    impl: rust_repeat
+    total: true
+  - name: tensor.flip
+    sig: "(Tensor * (List Int)) ~> Tensor"
+    impl: rust_flip
+    total: true
+  - name: tensor.triu
+    sig: "Value... ~> Tensor"
+    impl: rust_triu
+    total: true
+  - name: tensor.tril
+    sig: "Value... ~> Tensor"
+    impl: rust_tril
+    total: true
+  - name: tensor.diag
+    sig: "Value... ~> Tensor"
+    impl: rust_diag
+    total: true
+  - name: tensor.diagonal
+    sig: "Value... ~> Tensor"
+    impl: rust_diagonal
+    total: true
+  - name: tensor.trace
+    sig: "Tensor ~> Tensor"
+    impl: rust_trace
+    total: true
+  - name: tensor.t
+    sig: "Tensor ~> Tensor"
+    impl: rust_t
+    total: true
+  - name: tensor.mT
+    sig: "Tensor ~> Tensor"
+    impl: rust_mT
+    total: true
+  - name: tensor.swapaxes
+    sig: "(Tensor * Int * Int) ~> Tensor"
+    impl: rust_swapaxes
+    total: true
+  - name: tensor.moveaxis
+    sig: "(Tensor * (List Int) * (List Int)) ~> Tensor"
+    impl: rust_moveaxis
+    total: true
+  - name: tensor.rot90
+    sig: "Value... ~> Tensor"
+    impl: rust_rot90
+    total: true
+  - name: tensor.contiguous
+    sig: "Tensor ~> Tensor"
+    impl: rust_contiguous
+    total: true
+  - name: tensor.clone
+    sig: "Tensor ~> Tensor"
+    impl: rust_clone
+    total: true
+  - name: tensor.detach
+    sig: "Tensor ~> Tensor"
+    impl: rust_detach
+    total: true
+  - name: tensor.view
+    sig: "Value... ~> Tensor"
+    impl: rust_view
+    total: true
+  - name: tensor.pixel_shuffle
+    sig: "(Tensor * Int) ~> Tensor"
+    impl: rust_pixel_shuffle
+    total: true
+  - name: tensor.pixel_unshuffle
+    sig: "(Tensor * Int) ~> Tensor"
+    impl: rust_pixel_unshuffle
+    total: true
+  - name: tensor.constant_pad_nd
+    sig: "Value... ~> Tensor"
+    impl: rust_constant_pad_nd
+    total: true
+  - name: tensor.mm
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_mm
+    total: true
+  - name: tensor.bmm
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_bmm
+    total: true
+  - name: tensor.addmm
+    sig: "Value... ~> Tensor"
+    impl: rust_addmm
+    total: true
+  - name: tensor.addbmm
+    sig: "Value... ~> Tensor"
+    impl: rust_addbmm
+    total: true
+  - name: tensor.baddbmm
+    sig: "Value... ~> Tensor"
+    impl: rust_baddbmm
+    total: true
+  - name: tensor.mv
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_mv
+    total: true
+  - name: tensor.dot
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_dot
+    total: true
+  - name: tensor.vdot
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_vdot
+    total: true
+  - name: tensor.ger
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_ger
+    total: true
+  - name: tensor.outer
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_outer
+    total: true
+  - name: tensor.addr
+    sig: "Value... ~> Tensor"
+    impl: rust_addr
+    total: true
+  - name: tensor.addmv
+    sig: "Value... ~> Tensor"
+    impl: rust_addmv
+    total: true
+  - name: tensor.full
+    sig: "Value... ~> Tensor"
+    impl: rust_full
+    total: true
+  - name: tensor.full_like
+    sig: "Value... ~> Tensor"
+    impl: rust_full_like
+    total: true
+  - name: tensor.zeros_like
+    sig: "Value... ~> Tensor"
+    impl: rust_zeros_like
+    total: true
+  - name: tensor.ones_like
+    sig: "Value... ~> Tensor"
+    impl: rust_ones_like
+    total: true
+  - name: tensor.arange
+    sig: "Value... ~> Tensor"
+    impl: rust_arange
+    total: true
+  - name: tensor.linspace
+    sig: "Value... ~> Tensor"
+    impl: rust_linspace
+    total: true
+  - name: tensor.logspace
+    sig: "Value... ~> Tensor"
+    impl: rust_logspace
+    total: true
+  - name: tensor.eye
+    sig: "Value... ~> Tensor"
+    impl: rust_eye
+    total: true
+  - name: tensor.size
+    sig: "Value... ~> Value"
+    impl: rust_size
+    total: true
+  - name: tensor.stride
+    sig: "Tensor ~> (List Int)"
+    impl: rust_stride
+    total: true
+  - name: tensor.numel
+    sig: "Tensor ~> Int"
+    impl: rust_numel
+    total: true
+  - name: tensor.dim
+    sig: "Tensor ~> Int"
+    impl: rust_dim
+    total: true
+  - name: tensor.item
+    sig: "Tensor ~> Value"
+    impl: rust_item
+    total: true
+  - name: tensor.is_contiguous
+    sig: "Tensor ~> Bool"
+    impl: rust_is_contiguous
+    total: true
+  - name: tensor.avg_pool2d
+    sig: "Value... ~> Tensor"
+    impl: rust_avg_pool2d
+    total: true
+  - name: tensor.empty
+    sig: "Value... ~> Value"
+    impl: rust_empty
+    total: true
+  - name: tensor.rand
+    sig: "Value... ~> Value"
+    impl: rust_rand
+    total: true
+  - name: tensor.normal
+    sig: "Value... ~> Value"
+    impl: rust_normal
+    total: true
+  - name: tensor.unique
+    sig: "Value... ~> Value"
+    impl: rust_unique
+    total: true
+  - name: tensor.nonzero_dim
+    sig: "Value... ~> Tensor"
+    impl: rust_nonzero_dim
+    total: true
+  - name: tensor.einsum
+    sig: "Value... ~> Tensor"
+    impl: rust_einsum
+    total: true
+  - name: tensor.tensordot
+    sig: "(Tensor * Tensor * (List Int) * (List Int)) ~> Tensor"
+    impl: rust_tensordot
+    total: true
+  - name: tensor.kron
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_kron
+    total: true
+  - name: tensor.cross
+    sig: "Value... ~> Tensor"
+    impl: rust_cross
+    total: true
+  - name: tensor.norm
+    sig: "Value... ~> Tensor"
+    impl: rust_norm
+    total: true
+  - name: tensor.renorm
+    sig: "(Tensor * Float * Int * Float) ~> Tensor"
+    impl: rust_renorm
+    total: true
+  - name: tensor.normalize
+    sig: "Value... ~> Tensor"
+    impl: rust_normalize
+    total: true
+  - name: tensor.median
+    sig: "Value... ~> Value"
+    impl: rust_median
+    total: true
+  - name: tensor.mode
+    sig: "Value... ~> Value"
+    impl: rust_mode
+    total: true
+  - name: tensor.kthvalue
+    sig: "Value... ~> Value"
+    impl: rust_kthvalue
+    total: true
+  - name: tensor.quantile
+    sig: "Value... ~> Tensor"
+    impl: rust_quantile
+    total: true
+  - name: tensor.searchsorted
+    sig: "Value... ~> Tensor"
+    impl: rust_searchsorted
+    total: true
+  - name: tensor.bincount
+    sig: "Value... ~> Tensor"
+    impl: rust_bincount
+    total: true
+  - name: tensor.meshgrid
+    sig: "Array ~> Array"
+    impl: rust_meshgrid
+    total: true
+  - name: tensor.corrcoef
+    sig: "Tensor ~> Tensor"
+    impl: rust_corrcoef
+    total: true
+  - name: tensor.to
+    sig: "Value... ~> Tensor"
+    impl: rust_to
+    total: true
+  - name: tensor.max
+    sig: "Value... ~> Value"
+    impl: rust_max
+    total: true
+  - name: tensor.min
+    sig: "Value... ~> Value"
+    impl: rust_min
+    total: true
+  - name: tensor.count_nonzero
+    sig: "Value... ~> Tensor"
+    impl: rust_count_nonzero
+    total: true
+  - name: tensor.inner
+    sig: "(Tensor * Tensor) ~> Tensor"
+    impl: rust_inner
+    total: true
+  - name: tensor.dist
+    sig: "Value... ~> Tensor"
+    impl: rust_dist
+    total: true
+  - name: tensor.allclose
+    sig: "Value... ~> Bool"
+    impl: rust_allclose
+    total: true
+  - name: tensor.is_nonzero
+    sig: "Tensor ~> Bool"
+    impl: rust_is_nonzero
+    total: true
+  - name: tensor.msort
+    sig: "Tensor ~> Tensor"
+    impl: rust_msort
+    total: true
+  - name: tensor.nansum
+    sig: "Value... ~> Tensor"
+    impl: rust_nansum
+    total: true
+  - name: tensor.nanmean
+    sig: "Value... ~> Tensor"
+    impl: rust_nanmean
+    total: true
+  - name: tensor.cdist
+    sig: "Value... ~> Tensor"
+    impl: rust_cdist
+    total: true
+  - name: tensor.pdist
+    sig: "Value... ~> Tensor"
+    impl: rust_pdist
+    total: true

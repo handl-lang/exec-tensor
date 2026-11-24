@@ -194,7 +194,8 @@ tensor.matmul(tensor.from_list([[1, 2]]), tensor.from_list([[3], [4]]))
 
 ```text
 src/index.hnl          the interface (cap/op/handle declarations)
-src/ops/mod.rs         TENSOR_OPS + tensor_op_registry + the interface drift guard
+src/atoms.rs           the atoms.yaml loader (P-013 spec → {fn, sig} registry)
+src/ops/mod.rs         TENSOR_OPS + tensor_impls + tensor_op_registry + the interface drift guard
 src/ops/codec.rs       the wire codec + boundary ops (zeros/ones/from_list/to_list/shape)
 src/ops/elementwise.rs add/mul/sub/div (numpy broadcasting)
 src/ops/matmul.rs      matmul (rank-2/3, batch broadcast) + linear
@@ -203,6 +204,7 @@ src/ops/norm.rs        batch_norm, batch_norm_backward
 src/ops/shape_ops.rs   reshape, unsqueeze, select, transpose, concat
 src/ops/derive.rs      derive + DERIV_PAIRS
 src/tensor.test.hnl    .hnl spec tests (host-dependent under `hnl test`)
+atoms.yaml             the P-013 atom spec — GENERATED from index.hnl
 pkg.hnl                { modules: ["tensor"] }
 .handl.toml            self-declared dep names for repo-local resolution
 ci.sh                  bupha entry: hnl gate + cargo test
@@ -235,6 +237,25 @@ cargo run --manifest-path ../tool-codegen-aten/Cargo.toml -- \
 `~>` is the only `.hnl` arrow spelling: op-decl signatures in the
 `index.hnl` marker regions use it, while the `--- aten::…` schema
 comment lines keep ATen's own `->`.
+
+## The atom spec (`atoms.yaml`, P-013/T-149)
+
+`tensor_op_registry()` is spec-driven: `atoms.yaml` at the repo root
+declares all 239 atoms `{name, sig, impl, total}` and
+`src/atoms.rs` (a port of `handl-plugin-lib-stdlib`'s atoms loader —
+upstream move to `handl-plugin-lib-handl` pending) builds the
+`OpRegistry` `{name → {fn, sig}}` from it plus the `tensor_impls()`
+table in `src/ops/mod.rs`. `impl:` keys are the `handle ... with`
+bindings declared in `index.hnl`. `atoms.yaml` is generated — do not
+edit by hand:
+
+```sh
+python3 tools/gen_atoms.py          # regenerate from src/index.hnl
+python3 tools/gen_atoms.py --check  # drift gate, no writes
+```
+
+The `ops::tests::atoms_yaml_matches_index_hnl_and_impl_table` unit
+test guards the yaml↔impls↔registry half in `cargo test`.
 
 ## Gate
 
