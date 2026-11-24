@@ -41,9 +41,9 @@ fn attrs_schema(lang: &Language, op: &str) -> Value {
 #[test]
 fn fragment_covers_the_full_op_surface() {
     let rows = load_fragment();
-    // 238 = 31 handwritten seam ops + 207 ATen-ported ops
+    // 239 = 32 handwritten seam ops + 207 ATen-ported ops
     // (src/index.hnl `op "tensor.*"` decls ∪ tool-codegen-aten --emit-spec).
-    assert_eq!(rows.len(), 238, "every tensor.* op must be declared");
+    assert_eq!(rows.len(), 239, "every tensor.* op must be declared");
 
     let mut lang = Language::new();
     for row in &rows {
