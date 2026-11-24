@@ -33,6 +33,7 @@
 pub const TENSOR_HNL: &str = include_str!("index.hnl");
 
 pub mod atoms;
+pub mod kit;
 pub mod ops;
 #[cfg(feature = "python")]
 pub mod python;

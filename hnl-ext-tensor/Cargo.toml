@@ -1,0 +1,21 @@
+[package]
+name = "hnl-ext-tensor"
+version = "0.1.0"
+edition = "2024"
+description = "`tensor.*` host ops for `hnl` — kit registration plus a self-contained `tensor-run` dynamic extension (ADR-0149)."
+license = "MIT"
+repository = "https://github.com/handl-lang/exec-tensor"
+publish = false
+
+[lib]
+# `cdylib` is the shipped artifact (`libhnl_ext_tensor.{so,dylib,dll}`);
+# `rlib` keeps `cargo test` statically linked (ADR-0149 §Consequences).
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+handl-ext = { git = "https://github.com/handl-lang/kernel", branch = "main" }
+handl-kit-prelude = { git = "https://github.com/handl-lang/host", branch = "main" }
+handl-kit-pkg = { git = "https://github.com/handl-lang/kit-pkg", branch = "main" }
+handl-value = { git = "https://github.com/handl-lang/kernel", branch = "main" }
+handl-host-tensor = { path = ".." }
+serde_json = "1"

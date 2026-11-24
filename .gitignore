@@ -5,3 +5,6 @@
 project/
 xtask/target/
 xtask/Cargo.lock
+
+# nested hnl-ext-tensor crate artifacts
+hnl-ext-tensor/target/

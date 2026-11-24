@@ -33,6 +33,10 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 pyo3 = { version = "0.26", optional = true }
+# Kit registration (`src/kit.rs`): `tensor` enters the shared
+# `handl-kit-core` module table so kit-assembling hosts (kit-prelude's
+# `hnl run`, `hnl-ext-tensor`) get the ops without inline wiring.
+handl-kit-core = { git = "https://github.com/handl-lang/host", branch = "main" }
 
 [features]
 # Python binding: `cargo build --features python` emits
@@ -104,6 +108,7 @@ handl-platform = { path = "../host/crates/platform" }
 handl-plugin-ext-diag = { path = "../host/crates/plugin-ext-diag" }
 handl-plugin-lib-handl = { path = "../host/crates/plugin-lib-handl" }
 handl-plugin-module = { path = "../host/crates/plugin-module" }
+handl-kit-core = { path = "../host/crates/handl-kit-core" }
 handl-runtime = { path = "../host/crates/handl-runtime" }
 
 
