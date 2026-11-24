@@ -103,10 +103,7 @@ fn arity_is_declared_per_op() {
     assert!(!children[0].optional);
 
     // tensor.constant_pad_nd: min 2 / max 3 → arg2 optional.
-    let pad = lang
-        .ast
-        .get_by_identity("tensor.constant_pad_nd")
-        .unwrap();
+    let pad = lang.ast.get_by_identity("tensor.constant_pad_nd").unwrap();
     let children = pad.children.as_ref().unwrap();
     assert_eq!(children.len(), 3);
     assert!(children[2].optional, "arg2 is the optional pad arg");
@@ -168,10 +165,7 @@ fn tensor_op_term_with_attrs_round_trips() {
 
     // The positional spelling mlopt also accepts round-trips too.
     let positional = Term::op_native_attrs("tensor.concat", vec![], json!({"arg1": 0}));
-    let Term::Op {
-        attrs: Some(a), ..
-    } = positional
-    else {
+    let Term::Op { attrs: Some(a), .. } = positional else {
         panic!("expected attrs");
     };
     assert!(attrs_admitted(&attrs_schema(&lang, "tensor.concat"), &a));

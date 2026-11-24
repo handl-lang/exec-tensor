@@ -459,4 +459,3 @@ mod tests {
         assert!(call_fn(&MatmulBackward, &[tensor(&[2, 2], &[0.0; 4])]).is_err());
     }
 }
-

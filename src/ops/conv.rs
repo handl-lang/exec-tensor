@@ -79,13 +79,13 @@ impl Function for Conv2d {
                  (input [N, {c_in}, {h}, {w}], weight [{c_out}, {c_in_w}, {k_h}, {k_w}], groups {groups})"
             )));
         }
-        if let Some(b) = &bias {
-            if b.shape != [c_out] {
-                return Err(EvalError::Other(format!(
-                    "tensor.conv2d: bias shape {:?} != [{c_out}]",
-                    b.shape
-                )));
-            }
+        if let Some(b) = &bias
+            && b.shape != [c_out]
+        {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d: bias shape {:?} != [{c_out}]",
+                b.shape
+            )));
         }
         let Some(h_out_num) = (h + 2 * p_h).checked_sub(k_h) else {
             return Err(EvalError::Other(format!(
@@ -291,13 +291,13 @@ impl Function for Conv2dBackward {
                  (input [N, {c_in}, {h}, {w}], weight [{c_out}, {c_in_w}, {k_h}, {k_w}], groups {groups})"
             )));
         }
-        if let Some(b) = &bias {
-            if b.shape != [c_out] {
-                return Err(EvalError::Other(format!(
-                    "tensor.conv2d_backward: bias shape {:?} != [{c_out}]",
-                    b.shape
-                )));
-            }
+        if let Some(b) = &bias
+            && b.shape != [c_out]
+        {
+            return Err(EvalError::Other(format!(
+                "tensor.conv2d_backward: bias shape {:?} != [{c_out}]",
+                b.shape
+            )));
         }
         let Some(h_out_num) = (h + 2 * p_h).checked_sub(k_h) else {
             return Err(EvalError::Other(format!(
@@ -355,10 +355,9 @@ impl Function for Conv2dBackward {
                                         if ix >= w {
                                             continue;
                                         }
-                                        let xv =
-                                            input.data[((bn * c_in + ci) * h + iy) * w + ix];
-                                        let wv = weight.data
-                                            [((co * c_in_g + ic) * k_h + ky) * k_w + kx];
+                                        let xv = input.data[((bn * c_in + ci) * h + iy) * w + ix];
+                                        let wv =
+                                            weight.data[((co * c_in_g + ic) * k_h + ky) * k_w + kx];
                                         dx[((bn * c_in + ci) * h + iy) * w + ix] += gv * wv;
                                         dw[((co * c_in_g + ic) * k_h + ky) * k_w + kx] += gv * xv;
                                     }
@@ -392,9 +391,7 @@ fn require_extent_pair(v: &Value, what: &str) -> Result<[usize; 2], EvalError> {
             let k = require_extent(v)?;
             Ok([k, k])
         }
-        Value::Array(a) if a.len() == 2 => {
-            Ok([require_extent(&a[0])?, require_extent(&a[1])?])
-        }
+        Value::Array(a) if a.len() == 2 => Ok([require_extent(&a[0])?, require_extent(&a[1])?]),
         _ => Err(type_mismatch(
             &format!("{what}: int or [h, w] pair"),
             "other",
@@ -639,7 +636,7 @@ mod tests {
             .is_err()
         );
         // arity: too few / too many.
-        assert!(call_fn(&Conv2d, &[input.clone()]).is_err());
+        assert!(call_fn(&Conv2d, std::slice::from_ref(&input)).is_err());
         assert!(
             call_fn(
                 &Conv2d,
@@ -705,7 +702,10 @@ mod tests {
         assert_eq!(v["input"], tensor(&[1, 1, 2, 2], &[4.0; 4]));
         assert_eq!(
             v["weight"],
-            tensor(&[1, 1, 3, 3], &[1.0, 3.0, 2.0, 4.0, 10.0, 6.0, 3.0, 7.0, 4.0])
+            tensor(
+                &[1, 1, 3, 3],
+                &[1.0, 3.0, 2.0, 4.0, 10.0, 6.0, 3.0, 7.0, 4.0]
+            )
         );
     }
 
@@ -718,7 +718,11 @@ mod tests {
         assert!(
             call_fn(
                 &Conv2dBackward,
-                &[input.clone(), weight.clone(), tensor(&[1, 1, 2, 3], &[0.0; 6])]
+                &[
+                    input.clone(),
+                    weight.clone(),
+                    tensor(&[1, 1, 2, 3], &[0.0; 6])
+                ]
             )
             .is_err()
         );
@@ -734,7 +738,13 @@ mod tests {
         assert!(
             call_fn(
                 &Conv2dBackward,
-                &[input.clone(), weight.clone(), grad.clone(), Value::Null, json!(0)]
+                &[
+                    input.clone(),
+                    weight.clone(),
+                    grad.clone(),
+                    Value::Null,
+                    json!(0)
+                ]
             )
             .is_err()
         );
@@ -770,18 +780,13 @@ mod tests {
             ],
         );
         let grad = tensor(&[1, 1, 2, 2], &[1.0, 2.0, 3.0, 4.0]);
-        let v = call_fn(
-            &MaxPoolBackward,
-            &[input, grad, json!(2)],
-        )
-        .unwrap();
+        let v = call_fn(&MaxPoolBackward, &[input, grad, json!(2)]).unwrap();
         assert_eq!(
             v["input"],
             tensor(
                 &[1, 1, 4, 4],
                 &[
-                    0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.0, 0.0,
-                    4.0,
+                    0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 3.0, 0.0, 4.0,
                 ]
             )
         );
@@ -813,7 +818,16 @@ mod tests {
             .is_err()
         );
         // kernel required; stride zero rejected.
-        assert!(call_fn(&MaxPoolBackward, &[tensor(&[1,1,2,2],&[0.0;4]), tensor(&[1,1,1,1],&[0.0])]).is_err());
+        assert!(
+            call_fn(
+                &MaxPoolBackward,
+                &[
+                    tensor(&[1, 1, 2, 2], &[0.0; 4]),
+                    tensor(&[1, 1, 1, 1], &[0.0])
+                ]
+            )
+            .is_err()
+        );
         assert!(
             call_fn(
                 &MaxPoolBackward,
@@ -886,7 +900,7 @@ mod tests {
         assert!(call_fn(&MaxPool, &[input.clone(), json!(0)]).is_err());
         assert!(call_fn(&MaxPool, &[input.clone(), json!(1), json!(0)]).is_err());
         // missing kernel / extra arg.
-        assert!(call_fn(&MaxPool, &[input.clone()]).is_err());
+        assert!(call_fn(&MaxPool, std::slice::from_ref(&input)).is_err());
         assert!(call_fn(&MaxPool, &[input.clone(), json!(2), json!(2), json!(2)]).is_err());
     }
 }

@@ -23,6 +23,12 @@
 //! with the kernel `TaggedValue::Tensor` decode the tag at the `call_host`
 //! boundary; engines without it see a plain object.
 
+// `handl_platform::EvalError` is the platform error contract (~152 B);
+// every `Result<_, EvalError>` in this crate trips
+// `clippy::result_large_err`. Boxing it is an API change owned by the
+// platform crate — allowed here until that lands upstream.
+#![allow(clippy::result_large_err)]
+
 /// The handl source declaring the `tensor` interface.
 pub const TENSOR_HNL: &str = include_str!("index.hnl");
 

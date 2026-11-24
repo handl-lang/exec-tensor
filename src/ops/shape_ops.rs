@@ -360,11 +360,7 @@ impl Function for ConcatBackward {
                 "tensor.concat_backward: empty tensor list".to_string(),
             ));
         }
-        let ts: Vec<Tensor> = arr
-            .iter()
-            .enumerate()
-            .map(|(_i, v)| decode_tensor(v))
-            .collect::<Result<_, _>>()?;
+        let ts: Vec<Tensor> = arr.iter().map(decode_tensor).collect::<Result<_, _>>()?;
         let axis = require_extent(&args[1])?;
         let g = require_tensor(args, 2)?;
         let rank = ts[0].shape.len();
@@ -754,4 +750,3 @@ mod tests {
         );
     }
 }
-

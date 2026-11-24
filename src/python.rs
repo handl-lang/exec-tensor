@@ -30,7 +30,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde_json::Value;
 
-use crate::ops::{tensor_op_registry, TENSOR_OPS};
+use crate::ops::{TENSOR_OPS, tensor_op_registry};
 
 /// The process-wide op registry — built once, shared by every call.
 fn registry() -> &'static handl_plugin_lib_handl::OpRegistry {

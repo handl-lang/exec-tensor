@@ -19,7 +19,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
 use handl_platform::{EvalContext, EvalError, Function};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 // ---------------------------------------------------------------------------
 // The tensor codec
@@ -536,7 +536,7 @@ impl Function for Load {
             ),
             _ => None,
         };
-        Ok(load_safetensors_cached(path, name)?)
+        load_safetensors_cached(path, name)
     }
 }
 
@@ -547,10 +547,10 @@ fn resolve_load_path(path: &str) -> PathBuf {
     if p.is_absolute() {
         return p.to_path_buf();
     }
-    if let Ok(base) = std::env::var(LOAD_BASE_ENV) {
-        if !base.is_empty() {
-            return Path::new(&base).join(p);
-        }
+    if let Ok(base) = std::env::var(LOAD_BASE_ENV)
+        && !base.is_empty()
+    {
+        return Path::new(&base).join(p);
     }
     p.to_path_buf()
 }
@@ -673,7 +673,11 @@ fn load_safetensors(path: &str, name: Option<&str>) -> Result<Value, EvalError> 
 /// `resolved` is the [`resolve_load_path`] output — factored out so the
 /// [`load_safetensors_cached`] fast path can stat-then-key without
 /// resolving twice.
-fn load_safetensors_at(resolved: &Path, path: &str, name: Option<&str>) -> Result<Value, EvalError> {
+fn load_safetensors_at(
+    resolved: &Path,
+    path: &str,
+    name: Option<&str>,
+) -> Result<Value, EvalError> {
     let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
     let mut file = std::fs::File::open(resolved).map_err(|e| {
         EvalError::Other(format!(
@@ -939,12 +943,12 @@ fn decode_entry_streaming(
     })
 }
 
-/// Resolve the entry's dtype/shape to `(elem_size, decoder, expected
-/// payload bytes)` — the shared validation both decode paths apply.
-fn entry_decode_plan(
-    chosen: &StEntry,
-    path: &str,
-) -> Result<(usize, fn(&[u8]) -> f64, usize), EvalError> {
+/// `(elem_size, decoder, expected payload bytes)` decode plan.
+type DecodePlan = (usize, fn(&[u8]) -> f64, usize);
+
+/// Resolve the entry's dtype/shape to a [`DecodePlan`] — the shared
+/// validation both decode paths apply.
+fn entry_decode_plan(chosen: &StEntry, path: &str) -> Result<DecodePlan, EvalError> {
     let err = |msg: String| EvalError::Other(format!("tensor.load: {path}: {msg}"));
     let numel: usize = chosen.shape.iter().product();
     let (elem_size, decode): (usize, fn(&[u8]) -> f64) = match chosen.dtype.as_str() {
@@ -1154,7 +1158,7 @@ mod tests {
     #[test]
     fn from_list_to_list_round_trip() {
         let input = json!([[1, 2], [3, 4], [5, 6]]);
-        let t = call_fn(&FromList, &[input.clone()]).unwrap();
+        let t = call_fn(&FromList, std::slice::from_ref(&input)).unwrap();
         let back = call_fn(&ToList, &[t]).unwrap();
         // `to_list` emits `f64`s — semantically equal to the integer input
         // (handl `=` is Int/Float cross-comparable) though the JSON
