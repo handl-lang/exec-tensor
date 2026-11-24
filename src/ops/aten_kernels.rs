@@ -1,4 +1,4 @@
-//! Kernel cores for the `aten-port-gen` generated ops — the semantic
+//! Kernel cores for the `tool-codegen-aten` generated ops — the semantic
 //! half of the ATen port. `src/ops/aten_generated.rs` (generated, do not
 //! edit) holds one thin `Function` per op: it decodes the positional
 //! arguments per the ATen schema and calls the entry point here.
