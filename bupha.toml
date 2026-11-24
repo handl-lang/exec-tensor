@@ -1,4 +1,4 @@
-# bupha.toml — committed CI manifest for handl-lang/host-tensor.
+# bupha.toml — committed CI manifest for handl-lang/exec-tensor.
 #
 # The runner is this repo's ci.sh (.hnl gate + the crate's Rust
 # tests), executed natively in a detached worktree of the pushed sha.
@@ -7,8 +7,8 @@
 # bupha watch --config bupha.toml
 
 [[repos]]
-name = "handl-lang/host-tensor"
-dir = "~/GitHub/handl-lang/host-tensor"
+name = "handl-lang/exec-tensor"
+dir = "~/GitHub/handl-lang/exec-tensor"
 branch = "refs/heads/main"
   [repos.runner]
   kind = "script"
