@@ -33,7 +33,7 @@ fn build_tensor_module() -> HandlModule {
 }
 
 /// The kit's module table — just `tensor`.
-pub const MODULES: &[(&'static str, ModuleCtor)] = &[(MODULE_NAME, |_: &KitResolver, e| {
+pub const MODULES: &[(&str, ModuleCtor)] = &[(MODULE_NAME, |_: &KitResolver, e| {
     ModuleEntry::Handl(build_tensor_module().with_eval_engine(e))
 })];
 
