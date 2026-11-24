@@ -50,10 +50,12 @@ fn canonical_lang() -> Language {
 /// The `tensor` module the runtime's `call_host` dispatch resolves
 /// `tensor.*` string callees against — same construction as `compose.rs`.
 fn tensor_modules() -> Rc<dyn ModuleLookup> {
-    Rc::new(ModuleRegistry::new().with(
-        HandlModule::new("tensor", TENSOR_HNL, &[])
-            .with_ops(TENSOR_OPS, Arc::new(tensor_op_registry())),
-    ))
+    Rc::new(
+        ModuleRegistry::new().with(
+            HandlModule::new("tensor", TENSOR_HNL, &[])
+                .with_ops(TENSOR_OPS, Arc::new(tensor_op_registry())),
+        ),
+    )
 }
 
 /// A runtime with the canonical lexer/parser and the given eval engine.
@@ -155,7 +157,7 @@ fn tree_walk_matmul_returns_tagged_tensor() {
 fn tree_walk_tensor_projects_the_wire_view() {
     let rt = tree_walk_runtime();
     let value = rt
-        .run(&Source::new(&format!(
+        .run(&Source::new(format!(
             "do {{ {TENSOR_BINDINGS} \
              t := tensor.zeros([2, 3]); \
              t.__tensor__ }}"
@@ -208,7 +210,7 @@ fn tensor_value_reencodes_to_wire_form() {
         ("bytecode", bytecode_runtime()),
     ] {
         let value = rt
-            .run(&Source::new(&format!(
+            .run(&Source::new(format!(
                 "do {{ {TENSOR_BINDINGS} tensor.ones([3]) }}"
             )))
             .unwrap_or_else(|e| panic!("{name} run failed: {e}"));
@@ -232,7 +234,7 @@ fn tensor_value_reencodes_to_wire_form() {
 fn non_finite_elements_round_trip_as_wire_tags() {
     let rt = tree_walk_runtime();
     let value = rt
-        .run(&Source::new(&format!(
+        .run(&Source::new(format!(
             "do {{ {TENSOR_BINDINGS}              tensor.div(tensor.from_list([[1, 2]]), tensor.zeros([2])) }}"
         )))
         .unwrap();
@@ -244,7 +246,7 @@ fn non_finite_elements_round_trip_as_wire_tags() {
     );
 
     let out = rt
-        .run(&Source::new(&format!(
+        .run(&Source::new(format!(
             "do {{ {TENSOR_BINDINGS}              tensor.to_list(tensor.div(tensor.from_list([[1]]), tensor.zeros([1]))) }}"
         )))
         .expect("to_list on a non-finite tensor must decode the tags");
@@ -253,7 +255,7 @@ fn non_finite_elements_round_trip_as_wire_tags() {
     // And the tags feed back in: from_list accepts them, so a .hnl
     // program can round-trip a non-finite tensor through the host.
     let shape = rt
-        .run(&Source::new(&format!(
+        .run(&Source::new(format!(
             "do {{ {TENSOR_BINDINGS}              t := tensor.div(tensor.from_list([[1]]), tensor.zeros([1])); \
              tensor.shape(tensor.from_list(tensor.to_list(t))) }}"
         )))

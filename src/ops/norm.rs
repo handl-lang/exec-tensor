@@ -4,9 +4,7 @@
 use handl_platform::{EvalContext, EvalError, Function};
 use serde_json::{Value, json};
 
-use super::codec::{
-    Tensor, encode_tensor, opt_nonneg_float, require_arg_range, require_tensor,
-};
+use super::codec::{Tensor, encode_tensor, opt_nonneg_float, require_arg_range, require_tensor};
 
 /// The Rust handl for `op "tensor.batch_norm" : Value... -> Tensor`.
 ///
@@ -353,6 +351,6 @@ mod tests {
             )
             .is_err()
         );
-        assert!(call_fn(&BatchNormBackward, &[input.clone()]).is_err());
+        assert!(call_fn(&BatchNormBackward, std::slice::from_ref(&input)).is_err());
     }
 }

@@ -325,7 +325,14 @@ impl Function for MulBackward {
         let a = require_tensor(args, 0)?;
         let b = require_tensor(args, 1)?;
         let g = require_tensor(args, 2)?;
-        elementwise_backward(&a, &b, &g, "tensor.mul_backward", |_, y, g| g * y, |x, _, g| g * x)
+        elementwise_backward(
+            &a,
+            &b,
+            &g,
+            "tensor.mul_backward",
+            |_, y, g| g * y,
+            |x, _, g| g * x,
+        )
     }
 }
 

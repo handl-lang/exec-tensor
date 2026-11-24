@@ -85,8 +85,7 @@ pub(crate) fn opt_i64n(arg: Option<&Value>) -> Result<Option<i64>, EvalError> {
 
 /// A required finite float (`float`/`Scalar`).
 pub(crate) fn req_f64(arg: &Value) -> Result<f64, EvalError> {
-    arg.as_f64()
-        .ok_or_else(|| type_mismatch("number"))
+    arg.as_f64().ok_or_else(|| type_mismatch("number"))
 }
 
 /// An optional float with an ATen default (`Scalar beta=1`).
@@ -153,9 +152,7 @@ pub(crate) fn req_f64s(arg: &Value) -> Result<Vec<f64>, EvalError> {
 
 /// A required tensor list (`Tensor[]`).
 pub(crate) fn req_tensors(arg: &Value) -> Result<Vec<Tensor>, EvalError> {
-    let arr = arg
-        .as_array()
-        .ok_or_else(|| type_mismatch("tensor list"))?;
+    let arr = arg.as_array().ok_or_else(|| type_mismatch("tensor list"))?;
     arr.iter().map(decode_tensor).collect()
 }
 
@@ -171,9 +168,8 @@ pub(crate) fn opt_tensor_or_num(arg: &Value) -> Result<Option<Tensor>, EvalError
 
 /// Fetch `args[pos]` or a type error — generated code uses this so a
 /// missing required argument fails cleanly instead of panicking.
-pub(crate) fn arg_at<'a>(args: &'a [Value], pos: usize) -> Result<&'a Value, EvalError> {
-    args.get(pos)
-        .ok_or_else(|| type_mismatch("argument"))
+pub(crate) fn arg_at(args: &[Value], pos: usize) -> Result<&Value, EvalError> {
+    args.get(pos).ok_or_else(|| type_mismatch("argument"))
 }
 
 /// A dim spec (`int`, `int[]`, `int[1]`, nullable variants): accepts a
@@ -256,7 +252,7 @@ fn norm_reduce_dims(
     let rank = t.shape.len();
     match dims {
         None => Ok(Some((0..rank).collect())),
-        Some(d) if d.is_empty() => Ok(None),
+        Some([]) => Ok(None),
         Some(d) => {
             let mut out = Vec::with_capacity(d.len());
             for &x in d {
@@ -352,15 +348,27 @@ fn enc(t: Tensor) -> Value {
 
 /// `sum`/`prod`/`mean`/`amax`/`amin` share this driver shape:
 /// `(self, dim?, keepdim?)`.
-pub(crate) fn reduce_sum(t: &Tensor, dims: Option<Vec<i64>>, keepdim: bool) -> Result<Tensor, EvalError> {
+pub(crate) fn reduce_sum(
+    t: &Tensor,
+    dims: Option<Vec<i64>>,
+    keepdim: bool,
+) -> Result<Tensor, EvalError> {
     reduce_fold(t, dims.as_deref(), keepdim, 0.0, |a, b| a + b, "sum")
 }
 
-pub(crate) fn reduce_prod(t: &Tensor, dims: Option<Vec<i64>>, keepdim: bool) -> Result<Tensor, EvalError> {
+pub(crate) fn reduce_prod(
+    t: &Tensor,
+    dims: Option<Vec<i64>>,
+    keepdim: bool,
+) -> Result<Tensor, EvalError> {
     reduce_fold(t, dims.as_deref(), keepdim, 1.0, |a, b| a * b, "prod")
 }
 
-pub(crate) fn reduce_mean(t: &Tensor, dims: Option<Vec<i64>>, keepdim: bool) -> Result<Tensor, EvalError> {
+pub(crate) fn reduce_mean(
+    t: &Tensor,
+    dims: Option<Vec<i64>>,
+    keepdim: bool,
+) -> Result<Tensor, EvalError> {
     let s = reduce_sum(t, dims.clone(), keepdim)?;
     // Count of reduced elements per output — uniform across outputs.
     let Some(red) = norm_reduce_dims(t, dims.as_deref(), "mean")? else {
@@ -376,18 +384,37 @@ pub(crate) fn reduce_mean(t: &Tensor, dims: Option<Vec<i64>>, keepdim: bool) -> 
     })
 }
 
-pub(crate) fn reduce_amax(t: &Tensor, dims: Option<Vec<i64>>, keepdim: bool) -> Result<Tensor, EvalError> {
-    reduce_fold(t, dims.as_deref(), keepdim, f64::NEG_INFINITY, f64::max, "amax")
+pub(crate) fn reduce_amax(
+    t: &Tensor,
+    dims: Option<Vec<i64>>,
+    keepdim: bool,
+) -> Result<Tensor, EvalError> {
+    reduce_fold(
+        t,
+        dims.as_deref(),
+        keepdim,
+        f64::NEG_INFINITY,
+        f64::max,
+        "amax",
+    )
 }
 
-pub(crate) fn reduce_amin(t: &Tensor, dims: Option<Vec<i64>>, keepdim: bool) -> Result<Tensor, EvalError> {
+pub(crate) fn reduce_amin(
+    t: &Tensor,
+    dims: Option<Vec<i64>>,
+    keepdim: bool,
+) -> Result<Tensor, EvalError> {
     reduce_fold(t, dims.as_deref(), keepdim, f64::INFINITY, f64::min, "amin")
 }
 
 /// `logsumexp(self, dim, keepdim)` — dim is a required `int[1]`.
 /// Computed with keepdim internally (broadcast-friendly), then the
 /// reduced axes are squeezed back out when `keepdim` is false.
-pub(crate) fn reduce_logsumexp(t: &Tensor, dims: Vec<i64>, keepdim: bool) -> Result<Tensor, EvalError> {
+pub(crate) fn reduce_logsumexp(
+    t: &Tensor,
+    dims: Vec<i64>,
+    keepdim: bool,
+) -> Result<Tensor, EvalError> {
     // max-subtract for stability, then log(sum(exp(x - max))) + max.
     let mx = reduce_amax(t, Some(dims.clone()), true)?;
     let full = broadcast_to(&mx, &t.shape, "logsumexp")?;
@@ -421,7 +448,10 @@ pub(crate) fn reduce_logsumexp(t: &Tensor, dims: Vec<i64>, keepdim: bool) -> Res
             shape.remove(d);
         }
     }
-    Ok(Tensor { shape, data: out.data })
+    Ok(Tensor {
+        shape,
+        data: out.data,
+    })
 }
 
 /// Broadcast `src` (a reduction output) back to `dst` shape: dims that
@@ -571,11 +601,7 @@ pub(crate) fn permute_dims(t: &Tensor, perm: &[usize], op: &str) -> Result<Tenso
     let mut data = Vec::with_capacity(count);
     let mut idx = vec![0usize; rank];
     for _ in 0..count {
-        let off: usize = idx
-            .iter()
-            .zip(perm)
-            .map(|(&i, &d)| i * in_strides[d])
-            .sum();
+        let off: usize = idx.iter().zip(perm).map(|(&i, &d)| i * in_strides[d]).sum();
         data.push(t.data[off]);
         for d in (0..rank).rev() {
             idx[d] += 1;
@@ -608,7 +634,11 @@ pub(crate) fn cum_along(t: &Tensor, dim: i64, prod: bool, op: &str) -> Result<Te
                 } else {
                     data[(o * width + i - 1) * tail + j]
                 };
-                data[at] = if prod { prev * t.data[at] } else { prev + t.data[at] };
+                data[at] = if prod {
+                    prev * t.data[at]
+                } else {
+                    prev + t.data[at]
+                };
             }
         }
     }
@@ -644,11 +674,7 @@ pub(crate) fn softmax_dim(t: &Tensor, dim: i64, log: bool, op: &str) -> Result<T
             let lse = mx + sum.ln();
             for i in 0..width {
                 let x = t.data[base + i * tail];
-                data[base + i * tail] = if log {
-                    x - lse
-                } else {
-                    (x - lse).exp()
-                };
+                data[base + i * tail] = if log { x - lse } else { (x - lse).exp() };
             }
         }
     }
@@ -975,7 +1001,11 @@ unary_op!(k_relu, |x| x.max(0.0));
 unary_op!(k_selu, |x| {
     const ALPHA: f64 = 1.6732632423543772848170429916717;
     const SCALE: f64 = 1.0507009873554804934193349852946;
-    if x > 0.0 { SCALE * x } else { SCALE * ALPHA * (x.exp() - 1.0) }
+    if x > 0.0 {
+        SCALE * x
+    } else {
+        SCALE * ALPHA * (x.exp() - 1.0)
+    }
 });
 unary_op!(k_hardswish, |x| {
     let x = x.clamp(0.0, 6.0);
@@ -1003,7 +1033,12 @@ pub(crate) fn k_leaky_relu(t: &Tensor, slope: f64) -> Result<Tensor, EvalError> 
 }
 /// `elu` — ATen signature `(self, alpha=1, scale=1, input_scale=1)`:
 /// `y = scale * (x' > 0 ? x' : alpha*(exp(x')-1))` with `x' = input_scale*x`.
-pub(crate) fn k_elu(t: &Tensor, alpha: f64, scale: f64, input_scale: f64) -> Result<Tensor, EvalError> {
+pub(crate) fn k_elu(
+    t: &Tensor,
+    alpha: f64,
+    scale: f64,
+    input_scale: f64,
+) -> Result<Tensor, EvalError> {
     Ok(map_unary(t, |x| {
         let x = input_scale * x;
         if x > 0.0 {
@@ -1118,7 +1153,8 @@ bin_op!(k_atan2, "tensor.atan2", f64::atan2);
 bin_op!(k_copysign, "tensor.copysign", f64::copysign);
 bin_op!(k_hypot, "tensor.hypot", f64::hypot);
 bin_op!(k_fmod, "tensor.fmod", |a, b| a % b);
-bin_op!(k_floor_divide, "tensor.floor_divide", |a, b| (a / b).floor());
+bin_op!(k_floor_divide, "tensor.floor_divide", |a, b| (a / b)
+    .floor());
 bin_op!(k_remainder_tt, "tensor.remainder", |a, b| {
     // Python-style remainder: sign follows the divisor.
     let r = a % b;
@@ -1137,7 +1173,11 @@ bin_op!(k_logaddexp2, "tensor.logaddexp2", |a, b| {
     let m = a.max(b);
     m + ((a - m).exp2() + (b - m).exp2()).log2()
 });
-bin_op!(k_xlogy_tt, "tensor.xlogy", |a, b| if a == 0.0 { 0.0 } else { a * b.ln() });
+bin_op!(k_xlogy_tt, "tensor.xlogy", |a, b| if a == 0.0 {
+    0.0
+} else {
+    a * b.ln()
+});
 bin_op!(k_heaviside, "tensor.heaviside", |a, b| {
     if a > 0.0 {
         1.0
@@ -1197,11 +1237,21 @@ pub(crate) fn k_pow(args: &[serde_json::Value]) -> Result<serde_json::Value, Eva
     match args.get(1) {
         Some(v) if v.is_number() => {
             let e = req_f64(v)?;
-            Ok(enc(broadcast_elementwise(&a, &Tensor { shape: vec![], data: vec![e] }, "tensor.pow", |x, p| x.powf(p))?))
+            Ok(enc(broadcast_elementwise(
+                &a,
+                &Tensor {
+                    shape: vec![],
+                    data: vec![e],
+                },
+                "tensor.pow",
+                |x, p| x.powf(p),
+            )?))
         }
         Some(v) => {
             let b = decode_tensor(v)?;
-            Ok(enc(broadcast_elementwise(&a, &b, "tensor.pow", |x, p| x.powf(p))?))
+            Ok(enc(broadcast_elementwise(&a, &b, "tensor.pow", |x, p| {
+                x.powf(p)
+            })?))
         }
         None => Err(op_err("pow", "missing exponent")),
     }
@@ -1220,7 +1270,15 @@ pub(crate) fn binary_scalar_rhs(
     match rhs {
         v if v.is_number() => {
             let s = req_f64(v)?;
-            broadcast_elementwise(a, &Tensor { shape: vec![], data: vec![s] }, op, f)
+            broadcast_elementwise(
+                a,
+                &Tensor {
+                    shape: vec![],
+                    data: vec![s],
+                },
+                op,
+                f,
+            )
         }
         v => {
             let b = decode_tensor(v)?;
@@ -1292,19 +1350,30 @@ pub(crate) fn k_clamp(args: &[serde_json::Value]) -> Result<serde_json::Value, E
 fn clamp_side(t: &Tensor, b: &BoundVal, is_lo: bool, op: &str) -> Result<Tensor, EvalError> {
     let f = |x: f64, y: f64| if is_lo { x.max(y) } else { x.min(y) };
     match b {
-        BoundVal::Num(s) => {
-            broadcast_elementwise(t, &Tensor { shape: vec![], data: vec![*s] }, op, f)
-        }
+        BoundVal::Num(s) => broadcast_elementwise(
+            t,
+            &Tensor {
+                shape: vec![],
+                data: vec![*s],
+            },
+            op,
+            f,
+        ),
         BoundVal::Ten(tt) => broadcast_elementwise(t, tt, op, f),
         BoundVal::None => Ok(t.clone()),
     }
 }
 
 /// `clamp_min`/`clamp_max` — bound is `Scalar` or `Tensor`.
-pub(crate) fn k_clamp_minmax(args: &[serde_json::Value], is_min: bool) -> Result<serde_json::Value, EvalError> {
+pub(crate) fn k_clamp_minmax(
+    args: &[serde_json::Value],
+    is_min: bool,
+) -> Result<serde_json::Value, EvalError> {
     use super::codec::require_tensor;
     let a = require_tensor(args, 0)?;
-    let rhs = args.get(1).ok_or_else(|| op_err("clamp", "missing bound"))?;
+    let rhs = args
+        .get(1)
+        .ok_or_else(|| op_err("clamp", "missing bound"))?;
     let op = if is_min { "clamp_min" } else { "clamp_max" };
     let f = |x: f64, y: f64| if is_min { x.max(y) } else { x.min(y) };
     let t = binary_scalar_rhs(&a, rhs, op, f)?;
@@ -1356,7 +1425,10 @@ enum BoundVal {
 
 fn to_tensor_at(b: &BoundVal, shape: &[usize]) -> Result<Tensor, EvalError> {
     match b {
-        BoundVal::Num(s) => Ok(Tensor { shape: shape.to_vec(), data: vec![*s; shape.iter().product()] }),
+        BoundVal::Num(s) => Ok(Tensor {
+            shape: shape.to_vec(),
+            data: vec![*s; shape.iter().product()],
+        }),
         BoundVal::Ten(t) => Ok(t.clone()),
         BoundVal::None => Err(op_err("where", "missing operand")),
     }
@@ -1375,27 +1447,49 @@ fn broadcast_shape3(cond: &Tensor, x: &BoundVal, y: &BoundVal) -> Result<Vec<usi
     broadcast_shape_pub(&s1, &bound_shape(y), "where")
 }
 
-pub(crate) fn broadcast_shape_pub(a: &[usize], b: &[usize], op: &str) -> Result<Vec<usize>, EvalError> {
+pub(crate) fn broadcast_shape_pub(
+    a: &[usize],
+    b: &[usize],
+    op: &str,
+) -> Result<Vec<usize>, EvalError> {
     let rank = a.len().max(b.len());
     let mut out = vec![0usize; rank];
     for (i, o) in out.iter_mut().enumerate() {
-        let da = if i < rank - a.len() { 1 } else { a[i - (rank - a.len())] };
-        let db = if i < rank - b.len() { 1 } else { b[i - (rank - b.len())] };
+        let da = if i < rank - a.len() {
+            1
+        } else {
+            a[i - (rank - a.len())]
+        };
+        let db = if i < rank - b.len() {
+            1
+        } else {
+            b[i - (rank - b.len())]
+        };
         *o = match (da, db) {
             (x, y) if x == y => x,
             (1, y) => y,
             (x, 1) => x,
-            _ => return Err(op_err(op, format!("shapes {a:?} and {b:?} not broadcast-compatible"))),
+            _ => {
+                return Err(op_err(
+                    op,
+                    format!("shapes {a:?} and {b:?} not broadcast-compatible"),
+                ));
+            }
         };
     }
     Ok(out)
 }
 
 /// `eq`/`ne`/`lt`/`le`/`gt`/`ge` — rhs `Tensor` or `Scalar`.
-pub(crate) fn k_compare(args: &[serde_json::Value], kind: CmpKind) -> Result<serde_json::Value, EvalError> {
+pub(crate) fn k_compare(
+    args: &[serde_json::Value],
+    kind: CmpKind,
+) -> Result<serde_json::Value, EvalError> {
     use super::codec::require_tensor;
     let a = require_tensor(args, 0)?;
-    let rhs = args.get(1).ok_or_else(|| op_err("compare", "missing rhs"))?;
+    let rhs = args
+        .get(1)
+        .ok_or_else(|| op_err("compare", "missing rhs"))?;
     let t = binary_scalar_rhs(&a, rhs, kind.name(), |x, y| {
         let r = match kind {
             CmpKind::Eq => x == y,
@@ -1440,21 +1534,38 @@ pub(crate) fn k_xlogy(args: &[serde_json::Value]) -> Result<serde_json::Value, E
     let (a, b) = if a_is_num {
         let s = req_f64(&args[0])?;
         let bt = decode_tensor(&args[1])?;
-        (Tensor { shape: vec![], data: vec![s] }, bt)
+        (
+            Tensor {
+                shape: vec![],
+                data: vec![s],
+            },
+            bt,
+        )
     } else {
         let at = require_tensor(args, 0)?;
         match args.get(1) {
             Some(v) if v.is_number() => {
                 let s = req_f64(v)?;
-                (at, Tensor { shape: vec![], data: vec![s] })
+                (
+                    at,
+                    Tensor {
+                        shape: vec![],
+                        data: vec![s],
+                    },
+                )
             }
             Some(v) => (at, decode_tensor(v)?),
             None => return Err(op_err("xlogy", "missing rhs")),
         }
     };
-    Ok(enc(broadcast_elementwise(&a, &b, "tensor.xlogy", |x, y| {
-        if x == 0.0 { 0.0 } else { x * y.ln() }
-    })?))
+    Ok(enc(broadcast_elementwise(
+        &a,
+        &b,
+        "tensor.xlogy",
+        |x, y| {
+            if x == 0.0 { 0.0 } else { x * y.ln() }
+        },
+    )?))
 }
 
 /// `remainder` — `Tensor,Tensor` or `Scalar,Tensor`.
@@ -1462,13 +1573,20 @@ pub(crate) fn k_remainder(args: &[serde_json::Value]) -> Result<serde_json::Valu
     use super::codec::require_tensor;
     let f = |a: f64, b: f64| {
         let r = a % b;
-        if r != 0.0 && (r < 0.0) != (b < 0.0) { r + b } else { r }
+        if r != 0.0 && (r < 0.0) != (b < 0.0) {
+            r + b
+        } else {
+            r
+        }
     };
     if args.first().is_some_and(|v| v.is_number()) {
         let s = req_f64(&args[0])?;
         let b = require_tensor(args, 1)?;
         return Ok(enc(broadcast_elementwise(
-            &Tensor { shape: vec![], data: vec![s] },
+            &Tensor {
+                shape: vec![],
+                data: vec![s],
+            },
             &b,
             "tensor.remainder",
             f,
@@ -1484,13 +1602,23 @@ pub(crate) fn k_lerp(args: &[serde_json::Value]) -> Result<serde_json::Value, Ev
     use super::codec::require_tensor;
     let a = require_tensor(args, 0)?;
     let end = require_tensor(args, 1)?;
-    let w = args.get(2).ok_or_else(|| op_err("lerp", "missing weight"))?;
+    let w = args
+        .get(2)
+        .ok_or_else(|| op_err("lerp", "missing weight"))?;
     // lerp = a + w*(end - a); broadcast all three.
     let diff = broadcast_elementwise(&end, &a, "tensor.lerp", |e, x| e - x)?;
     let scaled = match w {
         v if v.is_number() => {
             let s = req_f64(v)?;
-            broadcast_elementwise(&diff, &Tensor { shape: vec![], data: vec![s] }, "tensor.lerp", |d, w| d * w)?
+            broadcast_elementwise(
+                &diff,
+                &Tensor {
+                    shape: vec![],
+                    data: vec![s],
+                },
+                "tensor.lerp",
+                |d, w| d * w,
+            )?
         }
         v => {
             let wt = decode_tensor(v)?;
@@ -1530,7 +1658,10 @@ pub(crate) fn k_prelu(a: &Tensor, w: &Tensor) -> Result<Tensor, EvalError> {
 
 /// `max`/`min` — overloaded: `(self)` all-reduce, `(self, dim, keepdim)`
 /// → `{values, indices}`, `(self, other)` elementwise.
-pub(crate) fn k_max_min(args: &[serde_json::Value], want_max: bool) -> Result<serde_json::Value, EvalError> {
+pub(crate) fn k_max_min(
+    args: &[serde_json::Value],
+    want_max: bool,
+) -> Result<serde_json::Value, EvalError> {
     use super::codec::require_tensor;
     let op = if want_max { "max" } else { "min" };
     let a = require_tensor(args, 0)?;
@@ -1538,7 +1669,11 @@ pub(crate) fn k_max_min(args: &[serde_json::Value], want_max: bool) -> Result<se
         // No second arg, or a tensor rhs → elementwise maximum/minimum.
         None => {
             // All-reduce → rank-0 tensor.
-            let init = if want_max { f64::NEG_INFINITY } else { f64::INFINITY };
+            let init = if want_max {
+                f64::NEG_INFINITY
+            } else {
+                f64::INFINITY
+            };
             let f = if want_max { f64::max } else { f64::min };
             let t = reduce_fold(&a, None, false, init, f, op)?;
             Ok(enc(t))
@@ -1563,7 +1698,12 @@ pub(crate) fn k_max_min(args: &[serde_json::Value], want_max: bool) -> Result<se
                     }
                 }
             };
-            Ok(enc(broadcast_elementwise(&a, &b, &format!("tensor.{op}"), f)?))
+            Ok(enc(broadcast_elementwise(
+                &a,
+                &b,
+                &format!("tensor.{op}"),
+                f,
+            )?))
         }
         Some(v) => {
             // (self, dim, keepdim?) → {values, indices}. `dim` is an int.
@@ -1586,33 +1726,54 @@ pub(crate) fn k_max_min(args: &[serde_json::Value], want_max: bool) -> Result<se
 
 /// `all`/`any` — `(self)`, `(self, dim)`, `(self, dim, keepdim)` where
 /// dim is int or int[].
-pub(crate) fn k_all_any(args: &[serde_json::Value], want_all: bool) -> Result<serde_json::Value, EvalError> {
+pub(crate) fn k_all_any(
+    args: &[serde_json::Value],
+    want_all: bool,
+) -> Result<serde_json::Value, EvalError> {
     use super::codec::require_tensor;
     let op = if want_all { "all" } else { "any" };
     let a = require_tensor(args, 0)?;
     let pred = |x: f64| x != 0.0;
     let combine = |acc: f64, x: f64| {
         let px = pred(x);
-        let r = if want_all { (acc != 0.0) && px } else { (acc != 0.0) || px };
+        let r = if want_all {
+            (acc != 0.0) && px
+        } else {
+            (acc != 0.0) || px
+        };
         if r { 1.0 } else { 0.0 }
     };
     // Determine dims arg.
     let dims: Option<Vec<i64>> = match args.get(1) {
         None => None,
         Some(v) if v.is_null() => None,
-        Some(v) if v.is_i64() || v.is_u64() || (v.is_f64() && v.as_f64().is_some_and(|f| f.fract() == 0.0)) => {
+        Some(v)
+            if v.is_i64()
+                || v.is_u64()
+                || (v.is_f64() && v.as_f64().is_some_and(|f| f.fract() == 0.0)) =>
+        {
             Some(vec![req_i64(v)?])
         }
         Some(v) => Some(req_i64s(v)?),
     };
     let keepdim = opt_bool(args.get(2), false)?;
-    let t = reduce_fold(&a, dims.as_deref(), keepdim, if want_all { 1.0 } else { 0.0 }, combine, op)?;
+    let t = reduce_fold(
+        &a,
+        dims.as_deref(),
+        keepdim,
+        if want_all { 1.0 } else { 0.0 },
+        combine,
+        op,
+    )?;
     Ok(enc(t))
 }
 
 /// `var`/`std` — `(self)`, `(self, unbiased)`, `(self, dim…, unbiased?,
 /// keepdim?)`. `correction` kwarg unsupported (documented seam).
-pub(crate) fn k_var_std(args: &[serde_json::Value], want_std: bool) -> Result<serde_json::Value, EvalError> {
+pub(crate) fn k_var_std(
+    args: &[serde_json::Value],
+    want_std: bool,
+) -> Result<serde_json::Value, EvalError> {
     use super::codec::require_tensor;
     let op = if want_std { "std" } else { "var" };
     let a = require_tensor(args, 0)?;
@@ -1632,7 +1793,11 @@ pub(crate) fn k_var_std(args: &[serde_json::Value], want_std: bool) -> Result<se
         ),
         Some(v) if v.is_boolean() => (None, req_bool(v)?, opt_bool(args.get(2), false)?),
         Some(v) => {
-            let d = if v.is_array() { req_i64s(v)? } else { vec![req_i64(v)?] };
+            let d = if v.is_array() {
+                req_i64s(v)?
+            } else {
+                vec![req_i64(v)?]
+            };
             (
                 Some(d),
                 opt_bool(args.get(2), true)?,
@@ -1645,7 +1810,12 @@ pub(crate) fn k_var_std(args: &[serde_json::Value], want_std: bool) -> Result<se
     let full = broadcast_to(&mean, &a.shape, op)?;
     let sq = Tensor {
         shape: a.shape.clone(),
-        data: a.data.iter().zip(&full.data).map(|(&x, &m)| (x - m).powi(2)).collect(),
+        data: a
+            .data
+            .iter()
+            .zip(&full.data)
+            .map(|(&x, &m)| (x - m).powi(2))
+            .collect(),
     };
     let var = reduce_mean(&sq, dims.clone(), keepdim)?;
     // Apply Bessel correction: n/(n-c) where c = 1 if unbiased.
@@ -1657,7 +1827,10 @@ pub(crate) fn k_var_std(args: &[serde_json::Value], want_std: bool) -> Result<se
         let denom = (n - c).max(f64::MIN_POSITIVE);
         let v = var.data[0] * n / denom;
         let out = if want_std { v.sqrt() } else { v };
-        return Ok(enc(Tensor { shape: vec![], data: vec![out] }));
+        return Ok(enc(Tensor {
+            shape: vec![],
+            data: vec![out],
+        }));
     };
     let n: usize = red.iter().map(|&d| a.shape[d]).product();
     let c = if unbiased { 1.0 } else { 0.0 };
@@ -1670,7 +1843,10 @@ pub(crate) fn k_var_std(args: &[serde_json::Value], want_std: bool) -> Result<se
             if want_std { v.sqrt() } else { v }
         })
         .collect();
-    Ok(enc(Tensor { shape: var.shape, data }))
+    Ok(enc(Tensor {
+        shape: var.shape,
+        data,
+    }))
 }
 
 /// `squeeze` — `(self)`, `(self, int dim)`, `(self, int[] dim)`.
@@ -1694,7 +1870,10 @@ pub(crate) fn k_squeeze(args: &[serde_json::Value]) -> Result<serde_json::Value,
             for &d in &ds {
                 let w = wrap_dim(d, rank, "squeeze")?;
                 if a.shape[w] != 1 {
-                    return Err(op_err("squeeze", format!("dim {d} has size {} != 1", a.shape[w])));
+                    return Err(op_err(
+                        "squeeze",
+                        format!("dim {d} has size {} != 1", a.shape[w]),
+                    ));
                 }
                 drop[w] = true;
             }
@@ -1706,29 +1885,43 @@ pub(crate) fn k_squeeze(args: &[serde_json::Value]) -> Result<serde_json::Value,
                 .collect();
         }
     }
-    Ok(enc(Tensor { shape, data: a.data.clone() }))
+    Ok(enc(Tensor {
+        shape,
+        data: a.data.clone(),
+    }))
 }
 
 /// `split` — `(self, int[] sizes, dim?)` or `(self, int size, dim?)`.
 pub(crate) fn k_split(args: &[serde_json::Value]) -> Result<serde_json::Value, EvalError> {
     use super::codec::require_tensor;
     let a = require_tensor(args, 0)?;
-    let spec = args.get(1).ok_or_else(|| op_err("split", "missing split spec"))?;
+    let spec = args
+        .get(1)
+        .ok_or_else(|| op_err("split", "missing split spec"))?;
     let dim = opt_i64(args.get(2), 0)?;
     let d = wrap_dim(dim, a.shape.len(), "split")?;
     let width = a.shape[d];
     let sizes: Vec<usize> = if spec.is_array() {
-        req_i64s(spec)?.iter().map(|&n| usize::try_from(n).map_err(|_| op_err("split", "negative size"))).collect::<Result<_, _>>()?
+        req_i64s(spec)?
+            .iter()
+            .map(|&n| usize::try_from(n).map_err(|_| op_err("split", "negative size")))
+            .collect::<Result<_, _>>()?
     } else {
         let n = usize::try_from(req_i64(spec)?).map_err(|_| op_err("split", "negative size"))?;
         if n == 0 || width % n != 0 {
-            return Err(op_err("split", format!("cannot split extent {width} into {n}")));
+            return Err(op_err(
+                "split",
+                format!("cannot split extent {width} into {n}"),
+            ));
         }
         vec![width / n; n]
     };
     let total: usize = sizes.iter().sum();
     if total != width {
-        return Err(op_err("split", format!("sizes sum {total} != extent {width}")));
+        return Err(op_err(
+            "split",
+            format!("sizes sum {total} != extent {width}"),
+        ));
     }
     // Slice along d.
     let inner: usize = a.shape[d + 1..].iter().product();
@@ -1753,7 +1946,8 @@ pub(crate) fn k_split(args: &[serde_json::Value]) -> Result<serde_json::Value, E
 pub(crate) fn k_chunk(args: &[serde_json::Value]) -> Result<serde_json::Value, EvalError> {
     use super::codec::require_tensor;
     let a = require_tensor(args, 0)?;
-    let chunks = usize::try_from(req_i64(&args[1])?).map_err(|_| op_err("chunk", "bad chunk count"))?;
+    let chunks =
+        usize::try_from(req_i64(&args[1])?).map_err(|_| op_err("chunk", "bad chunk count"))?;
     if chunks == 0 {
         return Err(op_err("chunk", "chunks must be positive"));
     }
@@ -1766,7 +1960,11 @@ pub(crate) fn k_chunk(args: &[serde_json::Value]) -> Result<serde_json::Value, E
     let sizes: Vec<usize> = (0..chunks).map(|i| base + usize::from(i < rem)).collect();
     // Reuse split machinery by fabricating the sizes arg.
     let sizes_json = json!(sizes.iter().map(|&s| s as i64).collect::<Vec<_>>());
-    let fake = [args[0].clone(), sizes_json, args.get(2).cloned().unwrap_or(Value::Null)];
+    let fake = [
+        args[0].clone(),
+        sizes_json,
+        args.get(2).cloned().unwrap_or(Value::Null),
+    ];
     k_split(&fake)
 }
 
@@ -1789,7 +1987,10 @@ pub(crate) fn k_stack(args: &[serde_json::Value]) -> Result<serde_json::Value, E
     for t in &ts {
         let mut shape = t.shape.clone();
         shape.insert(d, 1);
-        unsq.push(Tensor { shape, data: t.data.clone() });
+        unsq.push(Tensor {
+            shape,
+            data: t.data.clone(),
+        });
     }
     // concat along d.
     let out = concat_tensors(&unsq, d, "stack")?;
@@ -1799,7 +2000,10 @@ pub(crate) fn k_stack(args: &[serde_json::Value]) -> Result<serde_json::Value, E
 fn concat_tensors(ts: &[Tensor], axis: usize, op: &str) -> Result<Tensor, EvalError> {
     let rank = ts[0].shape.len();
     if axis >= rank {
-        return Err(op_err(op, format!("axis {axis} out of range for rank {rank}")));
+        return Err(op_err(
+            op,
+            format!("axis {axis} out of range for rank {rank}"),
+        ));
     }
     for t in ts {
         if t.shape.len() != rank {
@@ -1822,7 +2026,10 @@ fn concat_tensors(ts: &[Tensor], axis: usize, op: &str) -> Result<Tensor, EvalEr
             data.extend_from_slice(&t.data[o * slab..(o + 1) * slab]);
         }
     }
-    Ok(Tensor { shape: out_shape, data })
+    Ok(Tensor {
+        shape: out_shape,
+        data,
+    })
 }
 
 /// `unbind` — `(self, dim?)` → array of rank-1-less tensors.
@@ -1843,13 +2050,19 @@ pub(crate) fn k_unbind(args: &[serde_json::Value]) -> Result<serde_json::Value, 
             let src0 = (o * width + i) * inner;
             data.extend_from_slice(&a.data[src0..src0 + inner]);
         }
-        out.push(enc(Tensor { shape: out_shape.clone(), data }));
+        out.push(enc(Tensor {
+            shape: out_shape.clone(),
+            data,
+        }));
     }
     Ok(Value::Array(out))
 }
 
 /// `sort` — `(self, dim?, descending?)` → `{values, indices}`.
-pub(crate) fn k_sort(args: &[serde_json::Value], argsort_only: bool) -> Result<serde_json::Value, EvalError> {
+pub(crate) fn k_sort(
+    args: &[serde_json::Value],
+    argsort_only: bool,
+) -> Result<serde_json::Value, EvalError> {
     use super::codec::require_tensor;
     let op = if argsort_only { "argsort" } else { "sort" };
     let a = require_tensor(args, 0)?;
@@ -1888,8 +2101,14 @@ fn sort_dim(t: &Tensor, dim: i64, desc: bool, op: &str) -> Result<(Tensor, Tenso
     }
     let _ = rank;
     Ok((
-        Tensor { shape: t.shape.clone(), data: values },
-        Tensor { shape: t.shape.clone(), data: indices },
+        Tensor {
+            shape: t.shape.clone(),
+            data: values,
+        },
+        Tensor {
+            shape: t.shape.clone(),
+            data: indices,
+        },
     ))
 }
 
@@ -1925,7 +2144,10 @@ pub(crate) fn k_topk(args: &[serde_json::Value]) -> Result<serde_json::Value, Ev
     }
     let mut shape = a.shape.clone();
     shape[d] = k;
-    values = Tensor { shape: shape.clone(), data: v2 };
+    values = Tensor {
+        shape: shape.clone(),
+        data: v2,
+    };
     indices = Tensor { shape, data: i2 };
     Ok(json!({ "values": enc(values), "indices": enc(indices) }))
 }
@@ -1969,7 +2191,10 @@ pub(crate) fn k_index_select(t: &Tensor, dim: i64, idx: &Tensor) -> Result<Tenso
     for &i in &idx.data {
         let ii = i as i64;
         if ii < 0 || ii as usize >= width {
-            return Err(op_err("index_select", format!("index {ii} out of range [0,{width})")));
+            return Err(op_err(
+                "index_select",
+                format!("index {ii} out of range [0,{width})"),
+            ));
         }
     }
     let strides = row_major_strides(&t.shape);
@@ -1986,14 +2211,20 @@ pub(crate) fn k_index_select(t: &Tensor, dim: i64, idx: &Tensor) -> Result<Tenso
         }
     }
     let _ = strides;
-    Ok(Tensor { shape: out_shape, data })
+    Ok(Tensor {
+        shape: out_shape,
+        data,
+    })
 }
 
 /// `gather` — `out[.., i, ..] = self[.., index[.., i, ..], ..]` along dim.
 pub(crate) fn k_gather(t: &Tensor, dim: i64, idx: &Tensor) -> Result<Tensor, EvalError> {
     let d = wrap_dim(dim, t.shape.len(), "gather")?;
     if idx.shape != t.shape {
-        return Err(op_err("gather", format!("index shape {:?} != self {:?}", idx.shape, t.shape)));
+        return Err(op_err(
+            "gather",
+            format!("index shape {:?} != self {:?}", idx.shape, t.shape),
+        ));
     }
     let rank = t.shape.len();
     let width = t.shape[d];
@@ -2003,16 +2234,30 @@ pub(crate) fn k_gather(t: &Tensor, dim: i64, idx: &Tensor) -> Result<Tensor, Eva
     let mut data = vec![0.0; count];
     let mut cidx = vec![0usize; rank];
     for _ in 0..count {
-        let gi = idx.data[cidx.iter().zip(&istrides).map(|(&i, &s)| i * s).sum::<usize>()];
+        let gi = idx.data[cidx
+            .iter()
+            .zip(&istrides)
+            .map(|(&i, &s)| i * s)
+            .sum::<usize>()];
         let g = gi as usize;
         if g >= width {
-            return Err(op_err("gather", format!("index {g} out of range [0,{width})")));
+            return Err(op_err(
+                "gather",
+                format!("index {g} out of range [0,{width})"),
+            ));
         }
         let mut src = vec![0usize; rank];
         src.copy_from_slice(&cidx);
         src[d] = g;
-        data[cidx.iter().zip(&strides).map(|(&i, &s)| i * s).sum::<usize>()] =
-            t.data[src.iter().zip(&strides).map(|(&i, &s)| i * s).sum::<usize>()];
+        data[cidx
+            .iter()
+            .zip(&strides)
+            .map(|(&i, &s)| i * s)
+            .sum::<usize>()] = t.data[src
+            .iter()
+            .zip(&strides)
+            .map(|(&i, &s)| i * s)
+            .sum::<usize>()];
         for dd in (0..rank).rev() {
             cidx[dd] += 1;
             if cidx[dd] < t.shape[dd] {
@@ -2021,23 +2266,41 @@ pub(crate) fn k_gather(t: &Tensor, dim: i64, idx: &Tensor) -> Result<Tensor, Eva
             cidx[dd] = 0;
         }
     }
-    Ok(Tensor { shape: t.shape.clone(), data })
+    Ok(Tensor {
+        shape: t.shape.clone(),
+        data,
+    })
 }
 
 /// `index_add` — `out.index_add_(dim, index, source)` out-of-place,
 /// `alpha` scaling (kwarg, default 1).
-pub(crate) fn k_index_add(t: &Tensor, dim: i64, idx: &Tensor, src: &Tensor, alpha: f64) -> Result<Tensor, EvalError> {
+pub(crate) fn k_index_add(
+    t: &Tensor,
+    dim: i64,
+    idx: &Tensor,
+    src: &Tensor,
+    alpha: f64,
+) -> Result<Tensor, EvalError> {
     let d = wrap_dim(dim, t.shape.len(), "index_add")?;
     let rank = t.shape.len();
     if idx.shape.len() != 1 || src.shape.len() != rank {
-        return Err(op_err("index_add", "index must be rank-1, source same rank as self"));
+        return Err(op_err(
+            "index_add",
+            "index must be rank-1, source same rank as self",
+        ));
     }
     if src.shape[d] != idx.data.len() {
-        return Err(op_err("index_add", "source extent along dim must equal index length"));
+        return Err(op_err(
+            "index_add",
+            "source extent along dim must equal index length",
+        ));
     }
     for (k, (&s, &o)) in src.shape.iter().zip(&t.shape).enumerate() {
         if k != d && s != o {
-            return Err(op_err("index_add", format!("source shape {src:?} incompatible with {t:?}")));
+            return Err(op_err(
+                "index_add",
+                format!("source shape {src:?} incompatible with {t:?}"),
+            ));
         }
     }
     let width = t.shape[d];
@@ -2060,7 +2323,10 @@ pub(crate) fn k_index_add(t: &Tensor, dim: i64, idx: &Tensor, src: &Tensor, alph
             }
         }
     }
-    Ok(Tensor { shape: t.shape.clone(), data })
+    Ok(Tensor {
+        shape: t.shape.clone(),
+        data,
+    })
 }
 
 /// `take` — flatten `self`, gather at flat `index`.
@@ -2075,11 +2341,19 @@ pub(crate) fn k_take(t: &Tensor, idx: &Tensor) -> Result<Tensor, EvalError> {
         }
         data.push(t.data[j as usize]);
     }
-    Ok(Tensor { shape: idx.shape.clone(), data })
+    Ok(Tensor {
+        shape: idx.shape.clone(),
+        data,
+    })
 }
 
 /// `index_fill` — `index_fill(dim, index, value)` out-of-place.
-pub(crate) fn k_index_fill(t: &Tensor, dim: i64, idx: &Tensor, value: f64) -> Result<Tensor, EvalError> {
+pub(crate) fn k_index_fill(
+    t: &Tensor,
+    dim: i64,
+    idx: &Tensor,
+    value: f64,
+) -> Result<Tensor, EvalError> {
     let d = wrap_dim(dim, t.shape.len(), "index_fill")?;
     let mut out = t.clone();
     let inner: usize = t.shape[d + 1..].iter().product();
@@ -2117,18 +2391,27 @@ pub(crate) fn k_flatten(t: &Tensor, start: i64, end: i64) -> Result<Tensor, Eval
     let s = start.rem_euclid(rank);
     let e = end.rem_euclid(rank);
     if s > e {
-        return Err(op_err("flatten", format!("start_dim {start} > end_dim {end}")));
+        return Err(op_err(
+            "flatten",
+            format!("start_dim {start} > end_dim {end}"),
+        ));
     }
     let mut shape = t.shape.clone();
     let merged: usize = shape[s as usize..=e as usize].iter().product();
     shape.splice(s as usize..=e as usize, [merged]);
-    Ok(Tensor { shape, data: t.data.clone() })
+    Ok(Tensor {
+        shape,
+        data: t.data.clone(),
+    })
 }
 
 pub(crate) fn k_permute(t: &Tensor, dims: &[i64]) -> Result<Tensor, EvalError> {
     let rank = t.shape.len();
     if dims.len() != rank {
-        return Err(op_err("permute", format!("expected {rank} dims, got {}", dims.len())));
+        return Err(op_err(
+            "permute",
+            format!("expected {rank} dims, got {}", dims.len()),
+        ));
     }
     let perm: Vec<usize> = dims
         .iter()
@@ -2156,7 +2439,10 @@ pub(crate) fn k_expand(t: &Tensor, size: &[i64]) -> Result<Tensor, EvalError> {
                 (1, n) => n,
                 (d, n) if d == n => n,
                 (d, n) => {
-                    return Err(op_err("expand", format!("dim {i}: cannot expand {d} to {n}")))
+                    return Err(op_err(
+                        "expand",
+                        format!("dim {i}: cannot expand {d} to {n}"),
+                    ));
                 }
             }
         };
@@ -2184,11 +2470,17 @@ pub(crate) fn k_expand(t: &Tensor, size: &[i64]) -> Result<Tensor, EvalError> {
             idx[d] = 0;
         }
     }
-    Ok(Tensor { shape: out_shape, data })
+    Ok(Tensor {
+        shape: out_shape,
+        data,
+    })
 }
 
 pub(crate) fn k_expand_as(t: &Tensor, other: &Tensor) -> Result<Tensor, EvalError> {
-    k_expand(t, &other.shape.iter().map(|&d| d as i64).collect::<Vec<_>>())
+    k_expand(
+        t,
+        &other.shape.iter().map(|&d| d as i64).collect::<Vec<_>>(),
+    )
 }
 
 pub(crate) fn k_narrow(t: &Tensor, dim: i64, start: i64, len: i64) -> Result<Tensor, EvalError> {
@@ -2196,7 +2488,10 @@ pub(crate) fn k_narrow(t: &Tensor, dim: i64, start: i64, len: i64) -> Result<Ten
     let width = t.shape[d] as i64;
     let s = if start < 0 { start + width } else { start };
     if s < 0 || s + len > width || len < 0 {
-        return Err(op_err("narrow", format!("start {start} len {len} out of bounds for dim size {width}")));
+        return Err(op_err(
+            "narrow",
+            format!("start {start} len {len} out of bounds for dim size {width}"),
+        ));
     }
     let rank = t.shape.len();
     let inner: usize = t.shape[d + 1..].iter().product();
@@ -2209,7 +2504,10 @@ pub(crate) fn k_narrow(t: &Tensor, dim: i64, start: i64, len: i64) -> Result<Ten
         data.extend_from_slice(&t.data[src0..src0 + len as usize * inner]);
     }
     let _ = rank;
-    Ok(Tensor { shape: out_shape, data })
+    Ok(Tensor {
+        shape: out_shape,
+        data,
+    })
 }
 
 /// `slice(self, dim=0, start=None, end=None, step=1)` — `None` bounds
@@ -2265,13 +2563,19 @@ pub(crate) fn k_slice_opt(
         }
     }
     let _ = rank;
-    Ok(Tensor { shape: out_shape, data })
+    Ok(Tensor {
+        shape: out_shape,
+        data,
+    })
 }
 
 pub(crate) fn k_repeat(t: &Tensor, repeats: &[i64]) -> Result<Tensor, EvalError> {
     let rank = t.shape.len();
     if repeats.len() != rank {
-        return Err(op_err("repeat", format!("expected {rank} repeats, got {}", repeats.len())));
+        return Err(op_err(
+            "repeat",
+            format!("expected {rank} repeats, got {}", repeats.len()),
+        ));
     }
     // Tile: out[i0*r0+j0, ...] = t[j0, ...]. For each output coord the
     // input coord is coord % t.shape[d].
@@ -2298,7 +2602,10 @@ pub(crate) fn k_repeat(t: &Tensor, repeats: &[i64]) -> Result<Tensor, EvalError>
             idx[d] = 0;
         }
     }
-    Ok(Tensor { shape: out_shape, data })
+    Ok(Tensor {
+        shape: out_shape,
+        data,
+    })
 }
 
 /// `flip` — reverse along each dim in `dims`.
@@ -2330,7 +2637,10 @@ pub(crate) fn k_flip(t: &Tensor, dims: &[i64]) -> Result<Tensor, EvalError> {
             idx[d] = 0;
         }
     }
-    Ok(Tensor { shape: t.shape.clone(), data })
+    Ok(Tensor {
+        shape: t.shape.clone(),
+        data,
+    })
 }
 
 /// `triu`/`tril` — zero above/below `diagonal` offset.
@@ -2342,13 +2652,20 @@ pub(crate) fn k_triu_tril(t: &Tensor, diagonal: i64, upper: bool) -> Result<Tens
     let mut data = t.data.clone();
     for i in 0..m {
         for j in 0..n {
-            let keep = if upper { j - i >= diagonal } else { j - i <= diagonal };
+            let keep = if upper {
+                j - i >= diagonal
+            } else {
+                j - i <= diagonal
+            };
             if !keep {
                 data[(i * n + j) as usize] = 0.0;
             }
         }
     }
-    Ok(Tensor { shape: t.shape.clone(), data })
+    Ok(Tensor {
+        shape: t.shape.clone(),
+        data,
+    })
 }
 
 /// `diag` — extract (`diagonal=0`, 2-D) or embed (1-D → 2-D) diagonal.
@@ -2357,7 +2674,10 @@ pub(crate) fn k_diag(t: &Tensor, diagonal: i64) -> Result<Tensor, EvalError> {
         // Embed: n → n×n with `diagonal` offset.
         let n = t.shape[0] as i64;
         let size = n + diagonal.abs();
-        let mut out = Tensor { shape: vec![size as usize, size as usize], data: vec![0.0; (size * size) as usize] };
+        let mut out = Tensor {
+            shape: vec![size as usize, size as usize],
+            data: vec![0.0; (size * size) as usize],
+        };
         for (i, &v) in t.data.iter().enumerate() {
             let r = i as i64 + diagonal.max(0);
             let c = i as i64 + (-diagonal).max(0);
@@ -2373,20 +2693,31 @@ pub(crate) fn k_diag(t: &Tensor, diagonal: i64) -> Result<Tensor, EvalError> {
         let start_c = (-diagonal).max(0);
         let len = (m - start_r).min(n - start_c);
         if len <= 0 {
-            return Ok(Tensor { shape: vec![0], data: vec![] });
+            return Ok(Tensor {
+                shape: vec![0],
+                data: vec![],
+            });
         }
         let mut data = Vec::with_capacity(len as usize);
         for i in 0..len {
             data.push(t.data[((start_r + i) * n + start_c + i) as usize]);
         }
-        Ok(Tensor { shape: vec![len as usize], data })
+        Ok(Tensor {
+            shape: vec![len as usize],
+            data,
+        })
     } else {
         Err(op_err("diag", "expected rank-1 or rank-2 tensor"))
     }
 }
 
 /// `diagonal` — `(self, offset?, dim1?, dim2?)` → moved-to-end diagonal.
-pub(crate) fn k_diagonal(t: &Tensor, offset: i64, dim1: i64, dim2: i64) -> Result<Tensor, EvalError> {
+pub(crate) fn k_diagonal(
+    t: &Tensor,
+    offset: i64,
+    dim1: i64,
+    dim2: i64,
+) -> Result<Tensor, EvalError> {
     let rank = t.shape.len();
     if rank < 2 {
         return Err(op_err("diagonal", "expected rank >= 2"));
@@ -2433,7 +2764,10 @@ pub(crate) fn k_diagonal(t: &Tensor, offset: i64, dim1: i64, dim2: i64) -> Resul
             data.push(tp.data[off]);
         }
     }
-    Ok(Tensor { shape: out_shape, data })
+    Ok(Tensor {
+        shape: out_shape,
+        data,
+    })
 }
 
 /// `trace` — sum of the main diagonal (rank-2 only in torch).
@@ -2447,7 +2781,10 @@ pub(crate) fn k_trace(t: &Tensor) -> Result<Tensor, EvalError> {
     for i in 0..len {
         s += t.data[i * n + i];
     }
-    Ok(Tensor { shape: vec![], data: vec![s] })
+    Ok(Tensor {
+        shape: vec![],
+        data: vec![s],
+    })
 }
 
 /// `t` — transpose last two dims (rank >= 2).
@@ -2619,15 +2956,21 @@ fn pixel_space_depth(t: &Tensor, r: i64, shuffle: bool, op: &str) -> Result<Tens
             }
         }
     }
-    Ok(Tensor { shape: vec![n, out_c, out_h, out_w], data })
+    Ok(Tensor {
+        shape: vec![n, out_c, out_h, out_w],
+        data,
+    })
 }
 
 /// `glu` — split last/dim into two halves: a * sigmoid(b).
 pub(crate) fn k_glu(t: &Tensor, dim: i64) -> Result<Tensor, EvalError> {
     let d = wrap_dim(dim, t.shape.len(), "glu")?;
     let width = t.shape[d];
-    if width % 2 != 0 {
-        return Err(op_err("glu", format!("dim {d} extent {width} must be even")));
+    if !width.is_multiple_of(2) {
+        return Err(op_err(
+            "glu",
+            format!("dim {d} extent {width} must be even"),
+        ));
     }
     let half = width / 2;
     // a = narrow(0,half), b = narrow(half,half)
@@ -2638,19 +2981,33 @@ pub(crate) fn k_glu(t: &Tensor, dim: i64) -> Result<Tensor, EvalError> {
 }
 
 /// `rms_norm` — `x * rsqrt(mean(x² over normalized_shape) + eps) * w`.
-pub(crate) fn k_rms_norm(t: &Tensor, shape: &[i64], weight: Option<Tensor>, eps: f64) -> Result<Tensor, EvalError> {
+pub(crate) fn k_rms_norm(
+    t: &Tensor,
+    shape: &[i64],
+    weight: Option<Tensor>,
+    eps: f64,
+) -> Result<Tensor, EvalError> {
     let rank = t.shape.len();
     let ns: Vec<usize> = shape
         .iter()
         .map(|&n| usize::try_from(n).map_err(|_| op_err("rms_norm", "bad normalized_shape")))
         .collect::<Result<_, _>>()?;
-    if ns.len() > rank || ns.len() == 0 {
-        return Err(op_err("rms_norm", "normalized_shape must be a non-empty suffix"));
+    if ns.len() > rank || ns.is_empty() {
+        return Err(op_err(
+            "rms_norm",
+            "normalized_shape must be a non-empty suffix",
+        ));
     }
     let off = rank - ns.len();
     for (i, &n) in ns.iter().enumerate() {
         if t.shape[off + i] != n {
-            return Err(op_err("rms_norm", format!("normalized_shape {shape:?} does not match trailing dims {:?}", &t.shape[off..])));
+            return Err(op_err(
+                "rms_norm",
+                format!(
+                    "normalized_shape {shape:?} does not match trailing dims {:?}",
+                    &t.shape[off..]
+                ),
+            ));
         }
     }
     let inner: usize = ns.iter().product();
@@ -2664,13 +3021,20 @@ pub(crate) fn k_rms_norm(t: &Tensor, shape: &[i64], weight: Option<Tensor>, eps:
     let mut data = t.data.clone();
     for o in 0..outer {
         let base = o * inner;
-        let ms = t.data[base..base + inner].iter().map(|x| x * x).sum::<f64>() / inner as f64;
+        let ms = t.data[base..base + inner]
+            .iter()
+            .map(|x| x * x)
+            .sum::<f64>()
+            / inner as f64;
         let rstd = 1.0 / (ms + eps).sqrt();
         for v in &mut data[base..base + inner] {
             *v *= rstd;
         }
     }
-    let mut out = Tensor { shape: t.shape.clone(), data };
+    let mut out = Tensor {
+        shape: t.shape.clone(),
+        data,
+    };
     if let Some(w) = weight {
         out = broadcast_elementwise(&out, &w, "tensor.rms_norm", |x, ww| x * ww)?;
     }
@@ -2724,12 +3088,21 @@ pub(crate) fn k_layer_norm(
         .map(|&n| usize::try_from(n).map_err(|_| op_err("layer_norm", "bad normalized_shape")))
         .collect::<Result<_, _>>()?;
     if ns.is_empty() || ns.len() > rank {
-        return Err(op_err("layer_norm", "normalized_shape must be a non-empty suffix"));
+        return Err(op_err(
+            "layer_norm",
+            "normalized_shape must be a non-empty suffix",
+        ));
     }
     let off = rank - ns.len();
     for (i, &n) in ns.iter().enumerate() {
         if t.shape[off + i] != n {
-            return Err(op_err("layer_norm", format!("normalized_shape {shape:?} does not match trailing dims {:?}", &t.shape[off..])));
+            return Err(op_err(
+                "layer_norm",
+                format!(
+                    "normalized_shape {shape:?} does not match trailing dims {:?}",
+                    &t.shape[off..]
+                ),
+            ));
         }
     }
     let inner: usize = ns.iter().product();
@@ -2745,7 +3118,10 @@ pub(crate) fn k_layer_norm(
             *v = (*v - mean) * rstd;
         }
     }
-    let mut out = Tensor { shape: t.shape.clone(), data };
+    let mut out = Tensor {
+        shape: t.shape.clone(),
+        data,
+    };
     if let Some(w) = weight {
         out = broadcast_elementwise(&out, &w, "tensor.layer_norm", |x, ww| x * ww)?;
     }
@@ -2759,8 +3135,11 @@ pub(crate) fn k_layer_norm(
 /// list ordered from the LAST dim backward (torch convention).
 pub(crate) fn k_constant_pad_nd(t: &Tensor, pad: &[i64], value: f64) -> Result<Tensor, EvalError> {
     let rank = t.shape.len();
-    if pad.len() % 2 != 0 || pad.len() / 2 > rank {
-        return Err(op_err("constant_pad_nd", format!("pad {pad:?} invalid for rank {rank}")));
+    if !pad.len().is_multiple_of(2) || pad.len() / 2 > rank {
+        return Err(op_err(
+            "constant_pad_nd",
+            format!("pad {pad:?} invalid for rank {rank}"),
+        ));
     }
     let npad = pad.len() / 2;
     let mut out_shape = vec![0usize; rank];
@@ -2771,9 +3150,7 @@ pub(crate) fn k_constant_pad_nd(t: &Tensor, pad: &[i64], value: f64) -> Result<T
         pads[d] = (pad[2 * i], pad[2 * i + 1]);
         out_shape[d] = (t.shape[d] as i64 + pads[d].0 + pads[d].1) as usize;
     }
-    for d in npad..rank {
-        out_shape[d] = t.shape[d];
-    }
+    out_shape[npad..rank].copy_from_slice(&t.shape[npad..rank]);
     let strides = row_major_strides(&t.shape);
     let ostrides = row_major_strides(&out_shape);
     let count: usize = out_shape.iter().product();
@@ -2804,7 +3181,10 @@ pub(crate) fn k_constant_pad_nd(t: &Tensor, pad: &[i64], value: f64) -> Result<T
             idx[d] = 0;
         }
     }
-    Ok(Tensor { shape: out_shape, data })
+    Ok(Tensor {
+        shape: out_shape,
+        data,
+    })
 }
 
 /// `avg_pool2d` — NCHW, `count_include_pad`/`ceil_mode`/`divisor_override`.
@@ -2872,7 +3252,10 @@ pub(crate) fn k_avg_pool2d(
             }
         }
     }
-    Ok(Tensor { shape: vec![n, c, oh, ow], data })
+    Ok(Tensor {
+        shape: vec![n, c, oh, ow],
+        data,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -2886,7 +3269,10 @@ fn mm2(a: &Tensor, b: &Tensor, op: &str) -> Result<Tensor, EvalError> {
     }
     let (m, k, n) = (a.shape[0], a.shape[1], b.shape[1]);
     if a.shape[1] != b.shape[0] {
-        return Err(op_err(op, format!("inner dim mismatch {k} vs {}", b.shape[0])));
+        return Err(op_err(
+            op,
+            format!("inner dim mismatch {k} vs {}", b.shape[0]),
+        ));
     }
     if f32path::enabled() {
         return Ok(mm2_f32(a, b));
@@ -2903,7 +3289,10 @@ fn mm2(a: &Tensor, b: &Tensor, op: &str) -> Result<Tensor, EvalError> {
             }
         }
     }
-    Ok(Tensor { shape: vec![m, n], data })
+    Ok(Tensor {
+        shape: vec![m, n],
+        data,
+    })
 }
 
 /// The `f32` twin of [`mm2`] — see [`f32path`] for the gate.
@@ -2940,7 +3329,10 @@ pub(crate) fn k_bmm(a: &Tensor, b: &Tensor) -> Result<Tensor, EvalError> {
         return Err(op_err("bmm", "expected rank-3 operands"));
     }
     if a.shape[0] != b.shape[0] || a.shape[2] != b.shape[1] {
-        return Err(op_err("bmm", format!("shape mismatch {:?} x {:?}", a.shape, b.shape)));
+        return Err(op_err(
+            "bmm",
+            format!("shape mismatch {:?} x {:?}", a.shape, b.shape),
+        ));
     }
     let (batch, m, k, n) = (a.shape[0], a.shape[1], a.shape[2], b.shape[2]);
     if f32path::enabled() {
@@ -2979,11 +3371,18 @@ pub(crate) fn k_bmm(a: &Tensor, b: &Tensor) -> Result<Tensor, EvalError> {
             }
         }
     }
-    Ok(Tensor { shape: vec![batch, m, n], data })
+    Ok(Tensor {
+        shape: vec![batch, m, n],
+        data,
+    })
 }
 
 /// `addmm`/`addbmm`/`baddbmm` — `beta*self + alpha*(mm/bmm)`.
-pub(crate) fn k_addmm(args: &[serde_json::Value], batched: bool, self_first: bool) -> Result<serde_json::Value, EvalError> {
+pub(crate) fn k_addmm(
+    args: &[serde_json::Value],
+    batched: bool,
+    self_first: bool,
+) -> Result<serde_json::Value, EvalError> {
     use super::codec::require_tensor;
     // addmm(self, mat1, mat2, *, beta=1, alpha=1); addbmm/baddbmm same
     // with batch1/batch2 names — positions identical.
@@ -2993,11 +3392,31 @@ pub(crate) fn k_addmm(args: &[serde_json::Value], batched: bool, self_first: boo
     let m2 = require_tensor(args, 2)?;
     let beta = opt_f64(args.get(3), 1.0)?;
     let alpha = opt_f64(args.get(4), 1.0)?;
-    let prod = if batched { k_bmm(&m1, &m2)? } else { mm2(&m1, &m2, "addmm")? };
+    let prod = if batched {
+        k_bmm(&m1, &m2)?
+    } else {
+        mm2(&m1, &m2, "addmm")?
+    };
     // broadcast_elementwise handles beta/alpha via scalar tensors:
     // out = s*beta + prod*alpha — two broadcasts then add.
-    let sb = broadcast_elementwise(&s, &Tensor { shape: vec![], data: vec![beta] }, "addmm", |x, b| x * b)?;
-    let pa = broadcast_elementwise(&prod, &Tensor { shape: vec![], data: vec![alpha] }, "addmm", |x, a| x * a)?;
+    let sb = broadcast_elementwise(
+        &s,
+        &Tensor {
+            shape: vec![],
+            data: vec![beta],
+        },
+        "addmm",
+        |x, b| x * b,
+    )?;
+    let pa = broadcast_elementwise(
+        &prod,
+        &Tensor {
+            shape: vec![],
+            data: vec![alpha],
+        },
+        "addmm",
+        |x, a| x * a,
+    )?;
     let shape = broadcast_shape_pub(&sb.shape, &pa.shape, "addmm")?;
     let sf = broadcast_to(&sb, &shape, "addmm")?;
     let pf = broadcast_to(&pa, &shape, "addmm")?;
@@ -3031,18 +3450,24 @@ pub(crate) fn k_mv(a: &Tensor, v: &Tensor) -> Result<Tensor, EvalError> {
         });
     }
     let mut data = vec![0.0; m];
-    for i in 0..m {
+    for (i, out) in data.iter_mut().enumerate().take(m) {
         for l in 0..k {
-            data[i] += a.data[i * k + l] * v.data[l];
+            *out += a.data[i * k + l] * v.data[l];
         }
     }
-    Ok(Tensor { shape: vec![m], data })
+    Ok(Tensor {
+        shape: vec![m],
+        data,
+    })
 }
 
 /// `dot`/`vdot`/`vecdot` — flattened dot product → rank-0 tensor.
 pub(crate) fn k_dot(a: &Tensor, b: &Tensor) -> Result<Tensor, EvalError> {
     if a.data.len() != b.data.len() {
-        return Err(op_err("dot", format!("length mismatch {} vs {}", a.data.len(), b.data.len())));
+        return Err(op_err(
+            "dot",
+            format!("length mismatch {} vs {}", a.data.len(), b.data.len()),
+        ));
     }
     if f32path::enabled() {
         let s: f32 = a
@@ -3057,7 +3482,10 @@ pub(crate) fn k_dot(a: &Tensor, b: &Tensor) -> Result<Tensor, EvalError> {
         });
     }
     let s: f64 = a.data.iter().zip(&b.data).map(|(&x, &y)| x * y).sum();
-    Ok(Tensor { shape: vec![], data: vec![s] })
+    Ok(Tensor {
+        shape: vec![],
+        data: vec![s],
+    })
 }
 
 /// `ger`/`outer` — outer product `self[i]*vec2[j]` → (m,n).
@@ -3072,7 +3500,10 @@ pub(crate) fn k_ger(a: &Tensor, b: &Tensor) -> Result<Tensor, EvalError> {
             data[i * n + j] = a.data[i] * b.data[j];
         }
     }
-    Ok(Tensor { shape: vec![m, n], data })
+    Ok(Tensor {
+        shape: vec![m, n],
+        data,
+    })
 }
 
 /// `addr` — `beta*self + alpha*(vec1 ⊗ vec2)`.
@@ -3084,8 +3515,24 @@ pub(crate) fn k_addr(args: &[serde_json::Value]) -> Result<serde_json::Value, Ev
     let beta = opt_f64(args.get(3), 1.0)?;
     let alpha = opt_f64(args.get(4), 1.0)?;
     let outer = k_ger(&v1, &v2)?;
-    let sb = broadcast_elementwise(&s, &Tensor { shape: vec![], data: vec![beta] }, "addr", |x, b| x * b)?;
-    let oa = broadcast_elementwise(&outer, &Tensor { shape: vec![], data: vec![alpha] }, "addr", |x, a| x * a)?;
+    let sb = broadcast_elementwise(
+        &s,
+        &Tensor {
+            shape: vec![],
+            data: vec![beta],
+        },
+        "addr",
+        |x, b| x * b,
+    )?;
+    let oa = broadcast_elementwise(
+        &outer,
+        &Tensor {
+            shape: vec![],
+            data: vec![alpha],
+        },
+        "addr",
+        |x, a| x * a,
+    )?;
     let shape = broadcast_shape_pub(&sb.shape, &oa.shape, "addr")?;
     let sf = broadcast_to(&sb, &shape, "addr")?;
     let of = broadcast_to(&oa, &shape, "addr")?;
@@ -3104,8 +3551,24 @@ pub(crate) fn k_addmv(args: &[serde_json::Value]) -> Result<serde_json::Value, E
     let beta = opt_f64(args.get(3), 1.0)?;
     let alpha = opt_f64(args.get(4), 1.0)?;
     let mv = k_mv(&mat, &vec)?;
-    let sb = broadcast_elementwise(&s, &Tensor { shape: vec![], data: vec![beta] }, "addmv", |x, b| x * b)?;
-    let ma = broadcast_elementwise(&mv, &Tensor { shape: vec![], data: vec![alpha] }, "addmv", |x, a| x * a)?;
+    let sb = broadcast_elementwise(
+        &s,
+        &Tensor {
+            shape: vec![],
+            data: vec![beta],
+        },
+        "addmv",
+        |x, b| x * b,
+    )?;
+    let ma = broadcast_elementwise(
+        &mv,
+        &Tensor {
+            shape: vec![],
+            data: vec![alpha],
+        },
+        "addmv",
+        |x, a| x * a,
+    )?;
     let shape = broadcast_shape_pub(&sb.shape, &ma.shape, "addmv")?;
     let sf = broadcast_to(&sb, &shape, "addmv")?;
     let mf = broadcast_to(&ma, &shape, "addmv")?;
@@ -3126,11 +3589,17 @@ pub(crate) fn k_full(shape: &[i64], fill: f64) -> Result<Tensor, EvalError> {
         .map(|&n| usize::try_from(n).map_err(|_| op_err("full", "negative extent")))
         .collect::<Result<_, _>>()?;
     let n: usize = shape.iter().product();
-    Ok(Tensor { shape, data: vec![fill; n] })
+    Ok(Tensor {
+        shape,
+        data: vec![fill; n],
+    })
 }
 
 pub(crate) fn k_full_like(t: &Tensor, fill: f64) -> Result<Tensor, EvalError> {
-    Ok(Tensor { shape: t.shape.clone(), data: vec![fill; t.data.len()] })
+    Ok(Tensor {
+        shape: t.shape.clone(),
+        data: vec![fill; t.data.len()],
+    })
 }
 
 pub(crate) fn k_zeros_like(t: &Tensor) -> Result<Tensor, EvalError> {
@@ -3146,11 +3615,7 @@ pub(crate) fn k_arange(args: &[serde_json::Value]) -> Result<serde_json::Value, 
     let (start, end, step) = match args.len() {
         1 => (0.0, req_f64(&args[0])?, 1.0),
         2 => (req_f64(&args[0])?, req_f64(&args[1])?, 1.0),
-        _ => (
-            req_f64(&args[0])?,
-            req_f64(&args[1])?,
-            req_f64(&args[2])?,
-        ),
+        _ => (req_f64(&args[0])?, req_f64(&args[1])?, req_f64(&args[2])?),
     };
     if step == 0.0 {
         return Err(op_err("arange", "step must be nonzero"));
@@ -3168,11 +3633,17 @@ pub(crate) fn k_arange(args: &[serde_json::Value]) -> Result<serde_json::Value, 
             x += step;
         }
     }
-    Ok(enc(Tensor { shape: vec![data.len()], data }))
+    Ok(enc(Tensor {
+        shape: vec![data.len()],
+        data,
+    }))
 }
 
 /// `linspace`/`logspace` — `(start, end, steps)` (+base for logspace).
-pub(crate) fn k_linspace(args: &[serde_json::Value], log: bool) -> Result<serde_json::Value, EvalError> {
+pub(crate) fn k_linspace(
+    args: &[serde_json::Value],
+    log: bool,
+) -> Result<serde_json::Value, EvalError> {
     let start = req_f64(&args[0])?;
     let end = req_f64(&args[1])?;
     let steps = usize::try_from(req_i64(&args[2])?).map_err(|_| op_err("linspace", "bad steps"))?;
@@ -3194,7 +3665,10 @@ pub(crate) fn k_linspace(args: &[serde_json::Value], log: bool) -> Result<serde_
             data.push(if log { base.powf(v) } else { v });
         }
     }
-    Ok(enc(Tensor { shape: vec![steps], data }))
+    Ok(enc(Tensor {
+        shape: vec![steps],
+        data,
+    }))
 }
 
 /// `eye` — 1 arg (n → n×n) or 2 (n,m).
@@ -3209,7 +3683,10 @@ pub(crate) fn k_eye(args: &[serde_json::Value]) -> Result<serde_json::Value, Eva
     for i in 0..n.min(m) {
         data[i * m + i] = 1.0;
     }
-    Ok(enc(Tensor { shape: vec![n, m], data }))
+    Ok(enc(Tensor {
+        shape: vec![n, m],
+        data,
+    }))
 }
 
 /// `size` — 0 args → shape list; 1 int arg → that dim's extent.
@@ -3258,7 +3735,10 @@ pub(crate) fn k_unsqueeze(t: &Tensor, dim: i64) -> Result<Tensor, EvalError> {
     let d = dim.rem_euclid(rank + 1) as usize;
     let mut shape = t.shape.clone();
     shape.insert(d, 1);
-    Ok(Tensor { shape, data: t.data.clone() })
+    Ok(Tensor {
+        shape,
+        data: t.data.clone(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -3310,7 +3790,7 @@ pub(crate) fn drv_gelu(args: &[serde_json::Value]) -> Result<serde_json::Value, 
             return Err(op_err(
                 "gelu",
                 format!("approximate must be \"none\" or \"tanh\", got {v}"),
-            ))
+            ));
         }
     };
     let out = if tanh { k_gelu_tanh(&t)? } else { k_gelu(&t)? };
@@ -3391,7 +3871,7 @@ fn pair2(v: Vec<i64>, op: &str, name: &str) -> Result<Vec<i64>, EvalError> {
     match v.len() {
         1 => Ok(vec![v[0], v[0]]),
         2 => Ok(v),
-        _ => Err(op_err(op, &format!("{name} must have 1 or 2 elements"))),
+        _ => Err(op_err(op, format!("{name} must have 1 or 2 elements"))),
     }
 }
 
@@ -3421,8 +3901,7 @@ pub(crate) fn drv_avg_pool2d(args: &[serde_json::Value]) -> Result<serde_json::V
     )?))
 }
 
-/// `var`/`std` raw driver is `k_var_std` (already raw).
-
+// `var`/`std` raw driver is `k_var_std` (already raw).
 // ---------------------------------------------------------------------------
 // Seam closures — handwritten kernels for formerly-declared `# seam` ops
 // and a few trivially-supported promotions. Same conventions as above:
@@ -3597,8 +4076,16 @@ pub(crate) fn k_tensordot(
     // permute → [free…, contract…] / [contract…, free…], reshape, mm.
     let perm_a: Vec<usize> = free_a.iter().chain(&ca).copied().collect();
     let perm_b: Vec<usize> = cb.iter().chain(&free_b).copied().collect();
-    let a2 = reshape_like(&permute_dims(a, &perm_a, "tensordot")?, &[na, k], "tensordot")?;
-    let b2 = reshape_like(&permute_dims(b, &perm_b, "tensordot")?, &[k, nb], "tensordot")?;
+    let a2 = reshape_like(
+        &permute_dims(a, &perm_a, "tensordot")?,
+        &[na, k],
+        "tensordot",
+    )?;
+    let b2 = reshape_like(
+        &permute_dims(b, &perm_b, "tensordot")?,
+        &[k, nb],
+        "tensordot",
+    )?;
     let c = mm2(&a2, &b2, "tensordot")?;
     reshape_like(&c, &out_shape, "tensordot")
 }
@@ -3649,10 +4136,10 @@ pub(crate) fn k_bincount(
     weights: Option<&Tensor>,
     minlength: i64,
 ) -> Result<Tensor, EvalError> {
-    if let Some(w) = weights {
-        if w.data.len() != t.data.len() {
-            return Err(op_err("bincount", "weights numel mismatch"));
-        }
+    if let Some(w) = weights
+        && w.data.len() != t.data.len()
+    {
+        return Err(op_err("bincount", "weights numel mismatch"));
     }
     let mut max_i = -1i64;
     for &x in &t.data {
@@ -3694,12 +4181,7 @@ pub(crate) fn k_corrcoef(t: &Tensor) -> Result<Tensor, EvalError> {
                 });
             }
             let mean = t.data.iter().sum::<f64>() / n;
-            let var = t
-                .data
-                .iter()
-                .map(|&x| (x - mean).powi(2))
-                .sum::<f64>()
-                / (n - 1.0);
+            let var = t.data.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
             Ok(Tensor {
                 shape: vec![],
                 data: vec![if var > 0.0 { 1.0 } else { f64::NAN }],
@@ -3727,7 +4209,11 @@ pub(crate) fn k_corrcoef(t: &Tensor) -> Result<Tensor, EvalError> {
             for i in 0..m {
                 for j in 0..m {
                     let d = (cov[i * m + i] * cov[j * m + j]).sqrt();
-                    cov[i * m + j] = if d == 0.0 { f64::NAN } else { cov[i * m + j] / d };
+                    cov[i * m + j] = if d == 0.0 {
+                        f64::NAN
+                    } else {
+                        cov[i * m + j] / d
+                    };
                 }
             }
             Ok(Tensor {
@@ -3869,7 +4355,10 @@ fn select_dim_index(
 ) -> Result<Tensor, EvalError> {
     let w = t.shape[d];
     if pos >= w {
-        return Err(op_err(op, format!("index {pos} out of range for extent {w}")));
+        return Err(op_err(
+            op,
+            format!("index {pos} out of range for extent {w}"),
+        ));
     }
     let tail: usize = t.shape[d + 1..].iter().product();
     let outer: usize = t.shape[..d].iter().product();
@@ -4074,7 +4563,11 @@ fn parse_einsum_sub(s: &str) -> Result<EinsumSub, EvalError> {
                 return Err(op_err("einsum", format!("bad label {c:?} in {s:?}")));
             }
         }
-        Ok(EinsumSub { left, right, ell: true })
+        Ok(EinsumSub {
+            left,
+            right,
+            ell: true,
+        })
     } else {
         let labs: Vec<char> = s.chars().filter(|c| !c.is_whitespace()).collect();
         for &c in &labs {
@@ -4122,7 +4615,7 @@ struct EOperand {
 pub(crate) fn k_einsum(args: &[serde_json::Value]) -> Result<serde_json::Value, EvalError> {
     use std::collections::HashMap;
     let eq = args
-        .get(0)
+        .first()
         .and_then(|v| v.as_str())
         .ok_or_else(|| op_err("einsum", "equation must be a string"))?;
     let ts = req_tensors(arg_at(args, 1)?)?;
@@ -4134,7 +4627,11 @@ pub(crate) fn k_einsum(args: &[serde_json::Value]) -> Result<serde_json::Value, 
     if subs.len() != ts.len() {
         return Err(op_err(
             "einsum",
-            format!("equation has {} operands but {} tensors", subs.len(), ts.len()),
+            format!(
+                "equation has {} operands but {} tensors",
+                subs.len(),
+                ts.len()
+            ),
         ));
     }
 
@@ -4157,7 +4654,10 @@ pub(crate) fn k_einsum(args: &[serde_json::Value]) -> Result<serde_json::Value, 
             if lb + la > r {
                 return Err(op_err(
                     "einsum",
-                    format!("subscript {sub_s:?} has {} labels for rank-{r} tensor", lb + la),
+                    format!(
+                        "subscript {sub_s:?} has {} labels for rank-{r} tensor",
+                        lb + la
+                    ),
                 ));
             }
             let e = r - lb - la;
@@ -4196,18 +4696,28 @@ pub(crate) fn k_einsum(args: &[serde_json::Value]) -> Result<serde_json::Value, 
                 }
             }
             batch_dims.push(t.shape[lb..r - la].to_vec());
-            operands.push(EOperand { t: t.clone(), axes, e });
+            operands.push(EOperand {
+                t: t.clone(),
+                axes,
+                e,
+            });
         } else {
             let labs = &sub.left; // no ellipsis → all labels in `left`
             if labs.len() != r {
                 return Err(op_err(
                     "einsum",
-                    format!("subscript {sub_s:?} has {} labels for rank-{r} tensor", labs.len()),
+                    format!(
+                        "subscript {sub_s:?} has {} labels for rank-{r} tensor",
+                        labs.len()
+                    ),
                 ));
             }
             for (d, &ch) in labs.iter().enumerate() {
                 if local_labels.contains(&ch) {
-                    return Err(op_err("einsum", format!("repeated label {ch:?} in {sub_s:?}")));
+                    return Err(op_err(
+                        "einsum",
+                        format!("repeated label {ch:?} in {sub_s:?}"),
+                    ));
                 }
                 let id = *label_id.entry(ch).or_insert_with(|| {
                     label_size.push(None);
@@ -4230,7 +4740,11 @@ pub(crate) fn k_einsum(args: &[serde_json::Value]) -> Result<serde_json::Value, 
                 local_labels.push(ch);
             }
             batch_dims.push(Vec::new());
-            operands.push(EOperand { t: t.clone(), axes, e: 0 });
+            operands.push(EOperand {
+                t: t.clone(),
+                axes,
+                e: 0,
+            });
         }
     }
 
@@ -4239,10 +4753,10 @@ pub(crate) fn k_einsum(args: &[serde_json::Value]) -> Result<serde_json::Value, 
     for op in &operands {
         let mut seen = std::collections::HashSet::new();
         for ax in &op.axes {
-            if let EAxis::Lab(id) = ax {
-                if !seen.insert(*id) {
-                    return Err(op_err("einsum", "repeated label within one operand"));
-                }
+            if let EAxis::Lab(id) = ax
+                && !seen.insert(*id)
+            {
+                return Err(op_err("einsum", "repeated label within one operand"));
             }
         }
     }
@@ -4261,7 +4775,7 @@ pub(crate) fn k_einsum(args: &[serde_json::Value]) -> Result<serde_json::Value, 
         Bat(usize),
     }
     let mut out_axes: Vec<OutAxis> = Vec::new();
-    let mut out_has_ell = false;
+    let out_has_ell: bool;
     if has_arrow {
         let sub = parse_einsum_sub(rhs)?;
         out_has_ell = sub.ell;
@@ -4300,10 +4814,10 @@ pub(crate) fn k_einsum(args: &[serde_json::Value]) -> Result<serde_json::Value, 
         for op in &operands {
             let mut seen_here = std::collections::HashSet::new();
             for ax in &op.axes {
-                if let EAxis::Lab(id) = ax {
-                    if seen_here.insert(*id) {
-                        count[*id] += 1;
-                    }
+                if let EAxis::Lab(id) = ax
+                    && seen_here.insert(*id)
+                {
+                    count[*id] += 1;
                 }
             }
         }
@@ -4462,22 +4976,20 @@ pub(crate) fn k_searchsorted(args: &[serde_json::Value]) -> Result<serde_json::V
     let sorted = require_tensor(args, 0)?;
     let rank = sorted.shape.len();
     if rank == 0 {
-        return Err(op_err("searchsorted", "sorted_sequence must have rank >= 1"));
+        return Err(op_err(
+            "searchsorted",
+            "sorted_sequence must have rank >= 1",
+        ));
     }
     let n = sorted.shape[rank - 1];
     let mut right = opt_bool(args.get(3), false)?;
-    if let Some(v) = args.get(4) {
-        if !v.is_null() {
-            match v.as_str() {
-                Some("right") => right = true,
-                Some("left") => right = false,
-                _ => {
-                    return Err(op_err(
-                        "searchsorted",
-                        "side must be \"left\" or \"right\"",
-                    ))
-                }
-            }
+    if let Some(v) = args.get(4)
+        && !v.is_null()
+    {
+        match v.as_str() {
+            Some("right") => right = true,
+            Some("left") => right = false,
+            _ => return Err(op_err("searchsorted", "side must be \"left\" or \"right\"")),
         }
     }
     if args.get(5).is_some_and(|v| !v.is_null()) {
@@ -4637,16 +5149,16 @@ pub(crate) fn k_quantile(args: &[serde_json::Value]) -> Result<serde_json::Value
         }
     }
     // interpolation: string, default "linear" — only linear implemented.
-    if let Some(v) = args.get(4) {
-        if !v.is_null() {
-            match v.as_str() {
-                Some("linear") | None => {}
-                Some(other) => {
-                    return Err(op_err(
-                        "quantile",
-                        format!("interpolation {other:?} unsupported (only \"linear\")"),
-                    ))
-                }
+    if let Some(v) = args.get(4)
+        && !v.is_null()
+    {
+        match v.as_str() {
+            Some("linear") | None => {}
+            Some(other) => {
+                return Err(op_err(
+                    "quantile",
+                    format!("interpolation {other:?} unsupported (only \"linear\")"),
+                ));
             }
         }
     }
@@ -4767,8 +5279,7 @@ pub(crate) fn k_allclose(
     equal_nan: bool,
 ) -> Result<serde_json::Value, EvalError> {
     let d = broadcast_elementwise(a, b, "tensor.allclose", |x, y| {
-        let ok = (x - y).abs() <= atol + rtol * y.abs()
-            || (equal_nan && x.is_nan() && y.is_nan());
+        let ok = (x - y).abs() <= atol + rtol * y.abs() || (equal_nan && x.is_nan() && y.is_nan());
         if ok { 1.0 } else { 0.0 }
     })?;
     Ok(json!(d.data.iter().all(|&v| v != 0.0)))
@@ -4851,7 +5362,10 @@ pub(crate) fn k_cdist(
         (2, 2) => {
             let (b1, p1, r2, p2) = (x1.shape[0], x1.shape[1], x2.shape[0], x2.shape[1]);
             if p1 != p2 {
-                return Err(op_err("cdist", format!("feature dim mismatch {p1} vs {p2}")));
+                return Err(op_err(
+                    "cdist",
+                    format!("feature dim mismatch {p1} vs {p2}"),
+                ));
             }
             let mut data = vec![0.0; b1 * r2];
             for i in 0..b1 {
@@ -4863,12 +5377,24 @@ pub(crate) fn k_cdist(
                     );
                 }
             }
-            Ok(Tensor { shape: vec![b1, r2], data })
+            Ok(Tensor {
+                shape: vec![b1, r2],
+                data,
+            })
         }
         (3, 3) => {
-            let (nb, b1, f1, rb, f2) = (x1.shape[0], x1.shape[1], x1.shape[2], x2.shape[1], x2.shape[2]);
+            let (nb, b1, f1, rb, f2) = (
+                x1.shape[0],
+                x1.shape[1],
+                x1.shape[2],
+                x2.shape[1],
+                x2.shape[2],
+            );
             if x1.shape[0] != x2.shape[0] || f1 != f2 {
-                return Err(op_err("cdist", "batched cdist requires equal batch and feature dims"));
+                return Err(op_err(
+                    "cdist",
+                    "batched cdist requires equal batch and feature dims",
+                ));
             }
             let _ = rb;
             let mut data = vec![0.0; nb * b1 * x2.shape[1]];
@@ -4890,7 +5416,10 @@ pub(crate) fn k_cdist(
         }
         _ => Err(op_err(
             "cdist",
-            format!("expected rank-2 or rank-3 operands, got {:?} x {:?}", x1.shape, x2.shape),
+            format!(
+                "expected rank-2 or rank-3 operands, got {:?} x {:?}",
+                x1.shape, x2.shape
+            ),
         )),
     }
 }
@@ -4917,7 +5446,10 @@ pub(crate) fn k_pdist(t: &Tensor, p: f64) -> Result<Tensor, EvalError> {
             let (b, f) = (t.shape[0], t.shape[1]);
             let mut data = Vec::with_capacity(pairs(b));
             slab(t, 0, b, f, &mut data);
-            Ok(Tensor { shape: vec![data.len()], data })
+            Ok(Tensor {
+                shape: vec![data.len()],
+                data,
+            })
         }
         3 => {
             let (nb, b, f) = (t.shape[0], t.shape[1], t.shape[2]);
@@ -4953,7 +5485,13 @@ pub(crate) fn k_unique(args: &[serde_json::Value]) -> Result<serde_json::Value, 
     // Decorate (value, flat index); stable sort keeps index order inside
     // each equivalence class, so the first of a run is the first
     // occurrence. Total order: non-NaN < NaN, NaN == NaN.
-    let mut pairs: Vec<(f64, usize)> = a.data.iter().copied().enumerate().map(|(i, v)| (v, i)).collect();
+    let mut pairs: Vec<(f64, usize)> = a
+        .data
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(i, v)| (v, i))
+        .collect();
     pairs.sort_by(|x, y| {
         let (a, b) = (x.0, y.0);
         match (a.is_nan(), b.is_nan()) {
@@ -5010,8 +5548,11 @@ pub(crate) fn k_nonzero_static(args: &[serde_json::Value]) -> Result<serde_json:
         ));
     }
     let mut data = nz.data;
-    data.extend(std::iter::repeat(fill).take((size - nnz) * rank));
-    Ok(enc(Tensor { shape: vec![size, rank], data }))
+    data.extend(std::iter::repeat_n(fill, (size - nnz) * rank));
+    Ok(enc(Tensor {
+        shape: vec![size, rank],
+        data,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -5075,7 +5616,10 @@ mod tests {
         let a = t(&[2, 3, 4], &(0..24).map(|x| x as f64).collect::<Vec<_>>());
         assert_eq!(k_flatten(&a, 1, 2).unwrap().shape, vec![2, 12]);
         assert_eq!(k_permute(&a, &[2, 0, 1]).unwrap().shape, vec![4, 2, 3]);
-        assert_eq!(k_expand(&t(&[3], &[1.0, 2.0, 3.0]), &[2, 3]).unwrap().shape, vec![2, 3]);
+        assert_eq!(
+            k_expand(&t(&[3], &[1.0, 2.0, 3.0]), &[2, 3]).unwrap().shape,
+            vec![2, 3]
+        );
         let un = k_unbind(&[encode_tensor(t(&[2, 2], &[1.0, 2.0, 3.0, 4.0]))]).unwrap();
         assert_eq!(un.as_array().unwrap().len(), 2);
     }
@@ -5087,7 +5631,12 @@ mod tests {
         assert_eq!(k_mm(&a, &b).unwrap().data, vec![58.0, 64.0, 139.0, 154.0]);
         let v = t(&[3], &[1.0, 1.0, 1.0]);
         assert_eq!(k_mv(&a, &v).unwrap().data, vec![6.0, 15.0]);
-        assert_eq!(k_dot(&t(&[2], &[1.0, 2.0]), &t(&[2], &[3.0, 4.0])).unwrap().data, vec![11.0]);
+        assert_eq!(
+            k_dot(&t(&[2], &[1.0, 2.0]), &t(&[2], &[3.0, 4.0]))
+                .unwrap()
+                .data,
+            vec![11.0]
+        );
     }
 
     #[test]
@@ -5111,7 +5660,10 @@ mod tests {
         let a = tv(&[2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
         let b = tv(&[3, 2], &[7.0, 8.0, 9.0, 10.0, 11.0, 12.0]);
         let out = k_einsum(&[json!("ij,jk->ik"), json!([a.clone(), b.clone()])]).unwrap();
-        assert_eq!(decode_tensor(&out).unwrap().data, vec![58.0, 64.0, 139.0, 154.0]);
+        assert_eq!(
+            decode_tensor(&out).unwrap().data,
+            vec![58.0, 64.0, 139.0, 154.0]
+        );
         // Implicit output (numpy rule): once-labels alphabetical →
         // 'hi', i.e. (A@B)ᵀ layout — the known np.einsum gotcha.
         let out = k_einsum(&[json!("ij,jh"), json!([a.clone(), b.clone()])]).unwrap();
@@ -5172,15 +5724,21 @@ mod tests {
     #[test]
     fn tensordot_kron_cross() {
         let a = t(&[2, 3], &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
-        let b = t(&[3, 4], &(0..12).map(|x| x as f64 + 1.0).collect::<Vec<_>>());
+        let b = t(
+            &[3, 4],
+            &(0..12).map(|x| x as f64 + 1.0).collect::<Vec<_>>(),
+        );
         // contract last of a with first of b → (2,4) == mm.
-        let td = k_tensordot(&a, &b, &vec![1], &vec![0]).unwrap();
+        let td = k_tensordot(&a, &b, &[1], &[0]).unwrap();
         assert_eq!(td.shape, vec![2, 4]);
         assert_eq!(td.data, k_mm(&a, &b).unwrap().data);
         // kron: (2,)⊗(3,) → (6,)
         let u = t(&[2], &[1.0, 2.0]);
         let v = t(&[3], &[3.0, 4.0, 5.0]);
-        assert_eq!(k_kron(&u, &v).unwrap().data, vec![3.0, 4.0, 5.0, 6.0, 8.0, 10.0]);
+        assert_eq!(
+            k_kron(&u, &v).unwrap().data,
+            vec![3.0, 4.0, 5.0, 6.0, 8.0, 10.0]
+        );
         // cross: [1,0,0]×[0,1,0] = [0,0,1]
         let e1 = t(&[3], &[1.0, 0.0, 0.0]);
         let e2 = t(&[3], &[0.0, 1.0, 0.0]);
@@ -5257,7 +5815,11 @@ mod tests {
         let out = k_to(&[encode_tensor(a.clone()), json!("double")]).unwrap();
         assert_eq!(decode_tensor(&out).unwrap().data, vec![1.0, 2.0]);
         // Tensor rhs → same-dtype copy.
-        let out = k_to(&[encode_tensor(a.clone()), encode_tensor(t(&[2], &[9.0, 9.0]))]).unwrap();
+        let out = k_to(&[
+            encode_tensor(a.clone()),
+            encode_tensor(t(&[2], &[9.0, 9.0])),
+        ])
+        .unwrap();
         assert_eq!(decode_tensor(&out).unwrap().data, vec![1.0, 2.0]);
     }
 
@@ -5288,12 +5850,21 @@ mod tests {
     fn to_int_truncates_toward_zero() {
         let a = t(&[4], &[2.9, -2.9, 0.5, -0.5]);
         let out = k_to(&[encode_tensor(a.clone()), json!("int64")]).unwrap();
-        assert_eq!(decode_tensor(&out).unwrap().data, vec![2.0, -2.0, 0.0, -0.0]);
+        assert_eq!(
+            decode_tensor(&out).unwrap().data,
+            vec![2.0, -2.0, 0.0, -0.0]
+        );
         let out = k_to(&[encode_tensor(a.clone()), json!("long")]).unwrap();
-        assert_eq!(decode_tensor(&out).unwrap().data, vec![2.0, -2.0, 0.0, -0.0]);
+        assert_eq!(
+            decode_tensor(&out).unwrap().data,
+            vec![2.0, -2.0, 0.0, -0.0]
+        );
         // Narrower integer widths share the machinery.
         let out = k_to(&[encode_tensor(a.clone()), json!("int32")]).unwrap();
-        assert_eq!(decode_tensor(&out).unwrap().data, vec![2.0, -2.0, 0.0, -0.0]);
+        assert_eq!(
+            decode_tensor(&out).unwrap().data,
+            vec![2.0, -2.0, 0.0, -0.0]
+        );
         // uint8 admits only [0, 256): negatives and ≥256 decline.
         let u = t(&[3], &[2.9, 0.5, 255.9]);
         let out = k_to(&[encode_tensor(u), json!("uint8")]).unwrap();
@@ -5310,7 +5881,10 @@ mod tests {
         // largest f64 below 2^63, but not 2^63 itself.
         let lo = t(&[1], &[-9.223372036854776e18]);
         let out = k_to(&[encode_tensor(lo), json!("int64")]).unwrap();
-        assert_eq!(decode_tensor(&out).unwrap().data, vec![-9.223372036854776e18]);
+        assert_eq!(
+            decode_tensor(&out).unwrap().data,
+            vec![-9.223372036854776e18]
+        );
         let hi_ok = t(&[1], &[9.223372036854776e18 - 1024.0]);
         assert!(k_to(&[encode_tensor(hi_ok), json!("int64")]).is_ok());
         let hi_bad = t(&[1], &[9.223372036854776e18]);
@@ -5332,7 +5906,10 @@ mod tests {
         for name in ["float16", "bfloat16", "float8_e4m3fn", "int"] {
             let a = t(&[1], &[1.0]);
             let err = k_to(&[encode_tensor(a), json!(name)]).unwrap_err();
-            assert!(format!("{err}").contains("unsupported dtype"), "{name}: {err}");
+            assert!(
+                format!("{err}").contains("unsupported dtype"),
+                "{name}: {err}"
+            );
         }
     }
 
@@ -5353,18 +5930,50 @@ mod tests {
         // sorted [1,3,5,7], queries [0,3,4,8] → [0,1,2,4]
         let s = t(&[4], &[1.0, 3.0, 5.0, 7.0]);
         let q = t(&[4], &[0.0, 3.0, 4.0, 8.0]);
-        let out = k_searchsorted(&[encode_tensor(s.clone()), encode_tensor(q), json!(false), json!(false), Value::Null, Value::Null]).unwrap();
+        let out = k_searchsorted(&[
+            encode_tensor(s.clone()),
+            encode_tensor(q),
+            json!(false),
+            json!(false),
+            Value::Null,
+            Value::Null,
+        ])
+        .unwrap();
         assert_eq!(decode_tensor(&out).unwrap().data, vec![0.0, 1.0, 2.0, 4.0]);
         // right=true (upper_bound): [0,3,4,8] → [0,2,2,4]
-        let out = k_searchsorted(&[encode_tensor(s.clone()), encode_tensor(t(&[4], &[0.0, 3.0, 4.0, 8.0])), json!(false), json!(true), Value::Null, Value::Null]).unwrap();
+        let out = k_searchsorted(&[
+            encode_tensor(s.clone()),
+            encode_tensor(t(&[4], &[0.0, 3.0, 4.0, 8.0])),
+            json!(false),
+            json!(true),
+            Value::Null,
+            Value::Null,
+        ])
+        .unwrap();
         assert_eq!(decode_tensor(&out).unwrap().data, vec![0.0, 2.0, 2.0, 4.0]);
         // quantile flat, q=0.5 of [0,10,20,30] → 15
         let x = t(&[4], &[0.0, 10.0, 20.0, 30.0]);
-        let out = k_quantile(&[encode_tensor(x), json!(0.5), Value::Null, json!(false), json!("linear")]).unwrap();
+        let out = k_quantile(&[
+            encode_tensor(x),
+            json!(0.5),
+            Value::Null,
+            json!(false),
+            json!("linear"),
+        ])
+        .unwrap();
         assert_eq!(decode_tensor(&out).unwrap().data, vec![15.0]);
         // non-linear interpolation errors.
         let x = t(&[4], &[0.0, 10.0, 20.0, 30.0]);
-        assert!(k_quantile(&[encode_tensor(x), json!(0.5), Value::Null, json!(false), json!("nearest")]).is_err());
+        assert!(
+            k_quantile(&[
+                encode_tensor(x),
+                json!(0.5),
+                Value::Null,
+                json!(false),
+                json!("nearest")
+            ])
+            .is_err()
+        );
     }
 
     #[test]
@@ -5375,20 +5984,48 @@ mod tests {
         assert_eq!(mx["values"], encode_tensor(t(&[2], &[2.0, 4.0])));
         assert_eq!(mx["indices"], encode_tensor(t(&[2], &[1.0, 1.0])));
         // count_nonzero
-        assert_eq!(k_count_nonzero(&t(&[3], &[0.0, 1.0, -2.0]), None).unwrap().data, vec![2.0]);
+        assert_eq!(
+            k_count_nonzero(&t(&[3], &[0.0, 1.0, -2.0]), None)
+                .unwrap()
+                .data,
+            vec![2.0]
+        );
         // inner == dot
-        assert_eq!(k_dot(&t(&[2], &[1.0, 2.0]), &t(&[2], &[3.0, 4.0])).unwrap().data, vec![11.0]);
+        assert_eq!(
+            k_dot(&t(&[2], &[1.0, 2.0]), &t(&[2], &[3.0, 4.0]))
+                .unwrap()
+                .data,
+            vec![11.0]
+        );
         // dist p=2 of [0,0] vs [3,4] → 5
-        assert_eq!(k_dist(&t(&[2], &[0.0, 0.0]), &t(&[2], &[3.0, 4.0]), 2.0).unwrap().data, vec![5.0]);
+        assert_eq!(
+            k_dist(&t(&[2], &[0.0, 0.0]), &t(&[2], &[3.0, 4.0]), 2.0)
+                .unwrap()
+                .data,
+            vec![5.0]
+        );
         // allclose
-        assert_eq!(k_allclose(&t(&[2], &[1.0, 2.0]), &t(&[2], &[1.0, 2.0000001]), 1e-5, 1e-8, false).unwrap(), json!(true));
+        assert_eq!(
+            k_allclose(
+                &t(&[2], &[1.0, 2.0]),
+                &t(&[2], &[1.0, 2.0000001]),
+                1e-5,
+                1e-8,
+                false
+            )
+            .unwrap(),
+            json!(true)
+        );
         // is_nonzero
         assert_eq!(k_is_nonzero(&t(&[2], &[0.0, 0.0])).unwrap(), json!(false));
         // msort == sort values
         let s = t(&[3], &[3.0, 1.0, 2.0]);
         assert_eq!(k_msort(&s).unwrap().data, vec![1.0, 2.0, 3.0]);
         // nansum / nanmean (NaN can't ride the JSON wire — build directly)
-        let nan = Tensor { shape: vec![3], data: vec![1.0, f64::NAN, 3.0] };
+        let nan = Tensor {
+            shape: vec![3],
+            data: vec![1.0, f64::NAN, 3.0],
+        };
         assert_eq!(k_nansum(&nan, None, false).unwrap().data, vec![4.0]);
         assert_eq!(k_nanmean(&nan, None, false).unwrap().data, vec![2.0]);
         // cdist / pdist
@@ -5416,7 +6053,12 @@ mod tests {
         assert_eq!(out["values"], encode_tensor(t(&[3], &[3.0, 1.0, 2.0])));
         assert_eq!(out["indices"], encode_tensor(t(&[3], &[0.0, 1.0, 2.0])));
         // defaults: sorted=true, return_inverse inert.
-        let out = k_unique(&[encode_tensor(t(&[4], &[2.0, 1.0, 2.0, 1.0])), json!(true), json!(true)]).unwrap();
+        let out = k_unique(&[
+            encode_tensor(t(&[4], &[2.0, 1.0, 2.0, 1.0])),
+            json!(true),
+            json!(true),
+        ])
+        .unwrap();
         assert_eq!(out["values"], encode_tensor(t(&[2], &[1.0, 2.0])));
         assert_eq!(out["indices"], encode_tensor(t(&[2], &[1.0, 0.0])));
         // empty input → empty outputs.
@@ -5430,10 +6072,16 @@ mod tests {
         // 1 nonzero in a [2,2] → nnz=1; size=3 pads one fill row.
         let a = t(&[2, 2], &[0.0, 5.0, 0.0, 0.0]);
         let out = k_nonzero_static(&[encode_tensor(a.clone()), json!(3), json!(-1)]).unwrap();
-        assert_eq!(decode_tensor(&out).unwrap(), t(&[3, 2], &[0.0, 1.0, -1.0, -1.0, -1.0, -1.0]));
+        assert_eq!(
+            decode_tensor(&out).unwrap(),
+            t(&[3, 2], &[0.0, 1.0, -1.0, -1.0, -1.0, -1.0])
+        );
         // default fill_value = -1.
         let out = k_nonzero_static(&[encode_tensor(a.clone()), json!(2)]).unwrap();
-        assert_eq!(decode_tensor(&out).unwrap(), t(&[2, 2], &[0.0, 1.0, -1.0, -1.0]));
+        assert_eq!(
+            decode_tensor(&out).unwrap(),
+            t(&[2, 2], &[0.0, 1.0, -1.0, -1.0])
+        );
         // size == nnz → identical to nonzero.
         let out = k_nonzero_static(&[encode_tensor(a.clone()), json!(1)]).unwrap();
         assert_eq!(decode_tensor(&out).unwrap(), nonzero_impl(&a).unwrap());
