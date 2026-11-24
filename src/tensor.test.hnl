@@ -9,128 +9,128 @@
 
 from "./index" import * as tensor
 
-test_zeros_shape := assert tensor.shape(tensor.zeros([2, 3])) = [2, 3]
+test_zeros_shape := assert tensor.shape(tensor.zeros([2, 3])) == [2, 3]
 
-test_zeros_data := assert tensor.to_list(tensor.zeros([3])) = [0, 0, 0]
+test_zeros_data := assert tensor.to_list(tensor.zeros([3])) == [0, 0, 0]
 
-test_ones_data := assert tensor.to_list(tensor.ones([2, 2])) = [[1, 1], [1, 1]]
+test_ones_data := assert tensor.to_list(tensor.ones([2, 2])) == [[1, 1], [1, 1]]
 
-test_from_list_shape := assert tensor.shape(tensor.from_list([[1, 2, 3], [4, 5, 6]])) = [2, 3]
+test_from_list_shape := assert tensor.shape(tensor.from_list([[1, 2, 3], [4, 5, 6]])) == [2, 3]
 
-test_from_list_to_list_roundtrip := assert tensor.to_list(tensor.from_list([[1, 2], [3, 4]])) = [[1, 2], [3, 4]]
+test_from_list_to_list_roundtrip := assert tensor.to_list(tensor.from_list([[1, 2], [3, 4]])) == [[1, 2], [3, 4]]
 
-test_add := assert tensor.to_list(tensor.add(tensor.ones([2]), tensor.ones([2]))) = [2, 2]
+test_add := assert tensor.to_list(tensor.add(tensor.ones([2]), tensor.ones([2]))) == [2, 2]
 
-test_add_rank2 := assert tensor.to_list(tensor.add(tensor.from_list([[1, 2]]), tensor.from_list([[3, 4]]))) = [[4, 6]]
+test_add_rank2 := assert tensor.to_list(tensor.add(tensor.from_list([[1, 2]]), tensor.from_list([[3, 4]]))) == [[4, 6]]
 
 --- broadcasting: [2,3] + [3] adds the vector to each row.
-test_add_broadcast := assert tensor.to_list(tensor.add(tensor.from_list([[1, 2, 3], [4, 5, 6]]), tensor.from_list([10, 20, 30]))) = [[11, 22, 33], [14, 25, 36]]
+test_add_broadcast := assert tensor.to_list(tensor.add(tensor.from_list([[1, 2, 3], [4, 5, 6]]), tensor.from_list([10, 20, 30]))) == [[11, 22, 33], [14, 25, 36]]
 
 --- broadcasting outer sum: [2,1] + [1,3] → [2,3].
-test_add_broadcast_outer := assert tensor.to_list(tensor.add(tensor.from_list([[1], [10]]), tensor.from_list([[100, 200, 300]]))) = [[101, 201, 301], [110, 210, 310]]
+test_add_broadcast_outer := assert tensor.to_list(tensor.add(tensor.from_list([[1], [10]]), tensor.from_list([[100, 200, 300]]))) == [[101, 201, 301], [110, 210, 310]]
 
-test_mul_broadcast := assert tensor.to_list(tensor.mul(tensor.from_list([[1, 2, 3], [4, 5, 6]]), tensor.from_list([2, 3, 4]))) = [[2, 6, 12], [8, 15, 24]]
+test_mul_broadcast := assert tensor.to_list(tensor.mul(tensor.from_list([[1, 2, 3], [4, 5, 6]]), tensor.from_list([2, 3, 4]))) == [[2, 6, 12], [8, 15, 24]]
 
-test_sub_broadcast := assert tensor.to_list(tensor.sub(tensor.from_list([[10, 20], [30, 40]]), tensor.from_list([[1], [2]]))) = [[9, 19], [28, 38]]
+test_sub_broadcast := assert tensor.to_list(tensor.sub(tensor.from_list([[10, 20], [30, 40]]), tensor.from_list([[1], [2]]))) == [[9, 19], [28, 38]]
 
-test_div_broadcast := assert tensor.to_list(tensor.div(tensor.from_list([[8, 9], [10, 12]]), tensor.from_list([[2, 3]]))) = [[4, 3], [5, 4]]
+test_div_broadcast := assert tensor.to_list(tensor.div(tensor.from_list([[8, 9], [10, 12]]), tensor.from_list([[2, 3]]))) == [[4, 3], [5, 4]]
 
 --- div by zero → inf, spelled {"__nonfinite__": "inf"} on the wire.
-test_div_by_zero_nonfinite := assert tensor.to_list(tensor.div(tensor.from_list([[1]]), tensor.zeros([1])))[0][0].__nonfinite__ = "inf"
+test_div_by_zero_nonfinite := assert tensor.to_list(tensor.div(tensor.from_list([[1]]), tensor.zeros([1])))[0][0].__nonfinite__ == "inf"
 
-test_matmul_2x2 := assert tensor.to_list(tensor.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]))) = [[19, 22], [43, 50]]
+test_matmul_2x2 := assert tensor.to_list(tensor.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]))) == [[19, 22], [43, 50]]
 
-test_matmul_rect := assert tensor.to_list(tensor.matmul(tensor.from_list([[1, 2, 3], [4, 5, 6]]), tensor.from_list([[7, 8], [9, 10], [11, 12]]))) = [[58, 64], [139, 154]]
+test_matmul_rect := assert tensor.to_list(tensor.matmul(tensor.from_list([[1, 2, 3], [4, 5, 6]]), tensor.from_list([[7, 8], [9, 10], [11, 12]]))) == [[58, 64], [139, 154]]
 
 --- batched matmul: [2,2,2] (I then 2I) × [2,2,1] columns → [3,4] then [10,12].
-test_matmul_batched := assert tensor.to_list(tensor.matmul(tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]]), tensor.from_list([[[3], [4]], [[5], [6]]]))) = [[[3], [4]], [[10], [12]]]
+test_matmul_batched := assert tensor.to_list(tensor.matmul(tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]]), tensor.from_list([[[3], [4]], [[5], [6]]]))) == [[[3], [4]], [[10], [12]]]
 
 --- rank-2 side broadcasts across the batch: [[1,2],[3,4]] × [I, 2I].
-test_matmul_batch_broadcast := assert tensor.to_list(tensor.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]]))) = [[[1, 2], [3, 4]], [[2, 4], [6, 8]]]
+test_matmul_batch_broadcast := assert tensor.to_list(tensor.matmul(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[[1, 0], [0, 1]], [[2, 0], [0, 2]]]))) == [[[1, 2], [3, 4]], [[2, 4], [6, 8]]]
 
 --- conv2d: [1,2,1,2] input × [2,2,1,1] weight — per-pixel channel mixes
 --- out0 = x0 + 2·x1, out1 = −x0 (see the Rust suite for the math).
-test_conv2d_1x1 := assert tensor.to_list(tensor.conv2d(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]]))) = [[[[7, 10]], [[-1, -2]]]]
+test_conv2d_1x1 := assert tensor.to_list(tensor.conv2d(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]]))) == [[[[7, 10]], [[-1, -2]]]]
 
 --- conv2d with padding: all-ones 3x3 over a 2x2 input, pad 1 — every
 --- output sums all four cells (the window always covers the input).
-test_conv2d_padding := assert tensor.to_list(tensor.conv2d(tensor.from_list([[[[1, 2], [3, 4]]]]), tensor.from_list([[[[1, 1, 1], [1, 1, 1], [1, 1, 1]]]]), null, null, 1)) = [[[[10, 10], [10, 10]]]]
+test_conv2d_padding := assert tensor.to_list(tensor.conv2d(tensor.from_list([[[[1, 2], [3, 4]]]]), tensor.from_list([[[[1, 1, 1], [1, 1, 1], [1, 1, 1]]]]), null, null, 1)) == [[[[10, 10], [10, 10]]]]
 
 --- conv2d stride + bias: all-ones 2x2 over 1..9, stride 2, bias 10 → 22.
-test_conv2d_stride_bias := assert tensor.to_list(tensor.conv2d(tensor.from_list([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), tensor.from_list([[[[1, 1], [1, 1]]]]), tensor.from_list([10]), 2)) = [[[[22]]]]
+test_conv2d_stride_bias := assert tensor.to_list(tensor.conv2d(tensor.from_list([[[[1, 2, 3], [4, 5, 6], [7, 8, 9]]]]), tensor.from_list([[[[1, 1], [1, 1]]]]), tensor.from_list([10]), 2)) == [[[[22]]]]
 
 --- max_pool: 2x2 kernel (stride defaults to kernel) over 1..16 → per-window maxima.
-test_max_pool := assert tensor.to_list(tensor.max_pool(tensor.from_list([[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]]]), 2)) = [[[[6, 8], [14, 16]]]]
+test_max_pool := assert tensor.to_list(tensor.max_pool(tensor.from_list([[[[1, 2, 3, 4], [5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16]]]]), 2)) == [[[[6, 8], [14, 16]]]]
 
 --- max_pool with explicit stride 1: overlapping 2x2 windows over [[1,5,2],[3,4,6]].
-test_max_pool_stride := assert tensor.to_list(tensor.max_pool(tensor.from_list([[[[1, 5, 2], [3, 4, 6]]]]), [2, 2], [1, 1])) = [[[[5, 6]]]]
+test_max_pool_stride := assert tensor.to_list(tensor.max_pool(tensor.from_list([[[[1, 5, 2], [3, 4, 6]]]]), [2, 2], [1, 1])) == [[[[5, 6]]]]
 
 --- batch_norm eval-mode, eps = 0: c0 identity (x−0)/1·1+0; c1 (x−3)/2·2+1 = x−2.
-test_batch_norm := assert tensor.to_list(tensor.batch_norm(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), 0)) = [[[[1, 2]], [[1, 2]]]]
+test_batch_norm := assert tensor.to_list(tensor.batch_norm(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), 0)) == [[[[1, 2]], [[1, 2]]]]
 
-test_reshape := assert tensor.to_list(tensor.reshape(tensor.from_list([[1, 2, 3], [4, 5, 6]]), [3, 2])) = [[1, 2], [3, 4], [5, 6]]
+test_reshape := assert tensor.to_list(tensor.reshape(tensor.from_list([[1, 2, 3], [4, 5, 6]]), [3, 2])) == [[1, 2], [3, 4], [5, 6]]
 
-test_transpose := assert tensor.to_list(tensor.transpose(tensor.from_list([[1, 2, 3], [4, 5, 6]]), 0, 1)) = [[1, 4], [2, 5], [3, 6]]
+test_transpose := assert tensor.to_list(tensor.transpose(tensor.from_list([[1, 2, 3], [4, 5, 6]]), 0, 1)) == [[1, 4], [2, 5], [3, 6]]
 
 --- select drops the axis: dim 0 index 1 keeps row 1; dim 1 index 0 keeps column 0.
-test_select_row := assert tensor.to_list(tensor.select(tensor.from_list([[1, 2, 3], [4, 5, 6]]), 0, 1)) = [4, 5, 6]
+test_select_row := assert tensor.to_list(tensor.select(tensor.from_list([[1, 2, 3], [4, 5, 6]]), 0, 1)) == [4, 5, 6]
 
-test_select_col := assert tensor.to_list(tensor.select(tensor.from_list([[1, 2, 3], [4, 5, 6]]), 1, 0)) = [1, 4]
+test_select_col := assert tensor.to_list(tensor.select(tensor.from_list([[1, 2, 3], [4, 5, 6]]), 1, 0)) == [1, 4]
 
 --- linear(x, w, b) = x @ wᵀ + b: [[1,2]]·[[1,0],[0,1]]ᵀ + [10,20] = [11,22].
-test_linear := assert tensor.to_list(tensor.linear(tensor.from_list([[1, 2]]), tensor.from_list([[1, 0], [0, 1]]), tensor.from_list([10, 20]))) = [[11, 22]]
+test_linear := assert tensor.to_list(tensor.linear(tensor.from_list([[1, 2]]), tensor.from_list([[1, 0], [0, 1]]), tensor.from_list([10, 20]))) == [[11, 22]]
 
 --- concat axis 0 stacks, axis 1 appends columns.
-test_concat_axis0 := assert tensor.to_list(tensor.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6]])], 0)) = [[1, 2], [3, 4], [5, 6]]
+test_concat_axis0 := assert tensor.to_list(tensor.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6]])], 0)) == [[1, 2], [3, 4], [5, 6]]
 
-test_concat_axis1 := assert tensor.to_list(tensor.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5], [6]])], 1)) = [[1, 2, 5], [3, 4, 6]]
+test_concat_axis1 := assert tensor.to_list(tensor.concat([tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5], [6]])], 1)) == [[1, 2, 5], [3, 4, 6]]
 
 --- derive: the registered adjoint for batch_norm; unpaired names → null.
-test_derive := assert tensor.derive("batch_norm") = "tensor.batch_norm_backward"
+test_derive := assert tensor.derive("batch_norm") == "tensor.batch_norm_backward"
 
-test_derive_unpaired := assert tensor.derive("tensor.conv2d") = null
+test_derive_unpaired := assert tensor.derive("tensor.conv2d") == null
 
 --- batch_norm_backward: eps 0, scales 1 → dx = g elementwise; dβ = Σ g.
-test_batch_norm_backward := assert tensor.to_list((tensor.batch_norm_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]]), 0)).beta) = [1.5, 3.5]
+test_batch_norm_backward := assert tensor.to_list((tensor.batch_norm_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([1, 2]), tensor.from_list([0, 1]), tensor.from_list([0, 3]), tensor.from_list([1, 4]), tensor.from_list([[[[0.5, 1]], [[1.5, 2]]]]), 0)).beta) == [1.5, 3.5]
 
 --- backward ops: the *_backward convention is (primal args, grad_out) →
 --- grads keyed by operand name; broadcast dims sum back.
-test_add_backward := assert tensor.to_list((tensor.add_backward(tensor.ones([2, 3]), tensor.ones([3]), tensor.ones([2, 3]))).b) = [2, 2, 2]
+test_add_backward := assert tensor.to_list((tensor.add_backward(tensor.ones([2, 3]), tensor.ones([3]), tensor.ones([2, 3]))).b) == [2, 2, 2]
 
-test_mul_backward := assert tensor.to_list((tensor.mul_backward(tensor.from_list([2, 3]), tensor.from_list([4, 5]), tensor.ones([2]))).a) = [4, 5]
+test_mul_backward := assert tensor.to_list((tensor.mul_backward(tensor.from_list([2, 3]), tensor.from_list([4, 5]), tensor.ones([2]))).a) == [4, 5]
 
-test_sub_backward := assert tensor.to_list((tensor.sub_backward(tensor.ones([2]), tensor.ones([2]), tensor.from_list([2, 4]))).b) = [-2, -4]
+test_sub_backward := assert tensor.to_list((tensor.sub_backward(tensor.ones([2]), tensor.ones([2]), tensor.from_list([2, 4]))).b) == [-2, -4]
 
-test_div_backward := assert tensor.to_list((tensor.div_backward(tensor.from_list([8, 9]), tensor.from_list([2, 3]), tensor.ones([2]))).b) = [-2, -1]
+test_div_backward := assert tensor.to_list((tensor.div_backward(tensor.from_list([8, 9]), tensor.from_list([2, 3]), tensor.ones([2]))).b) == [-2, -1]
 
 --- matmul_backward with g = I: da = bᵀ = [[5,7],[6,8]].
-test_matmul_backward := assert tensor.to_list((tensor.matmul_backward(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]), tensor.from_list([[1, 0], [0, 1]]))).a) = [[5, 7], [6, 8]]
+test_matmul_backward := assert tensor.to_list((tensor.matmul_backward(tensor.from_list([[1, 2], [3, 4]]), tensor.from_list([[5, 6], [7, 8]]), tensor.from_list([[1, 0], [0, 1]]))).a) == [[5, 7], [6, 8]]
 
 --- conv2d_backward, 1x1 kernel, g all-ones: dx[ci] = Σ_co w[co,ci] →
 --- ch0 1+(−1)=0, ch1 2+0=2; dw[co,ci] = Σx = [4,6]; db = [2,2].
-test_conv2d_backward_input := assert tensor.to_list((tensor.conv2d_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]]), tensor.ones([1, 2, 1, 2]))).input) = [[[0, 0]], [[2, 2]]]
+test_conv2d_backward_input := assert tensor.to_list((tensor.conv2d_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]]), tensor.ones([1, 2, 1, 2]))).input) == [[[0, 0]], [[2, 2]]]
 
-test_conv2d_backward_weight := assert tensor.to_list((tensor.conv2d_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]]), tensor.ones([1, 2, 1, 2]), tensor.zeros([2]))).bias) = [2, 2]
+test_conv2d_backward_weight := assert tensor.to_list((tensor.conv2d_backward(tensor.from_list([[[[1, 2]], [[3, 4]]]]), tensor.from_list([[[[1]], [[2]]], [[[-1]], [[0]]]]), tensor.ones([1, 2, 1, 2]), tensor.zeros([2]))).bias) == [2, 2]
 
-test_derive_mul := assert tensor.derive("mul") = "tensor.mul_backward"
+test_derive_mul := assert tensor.derive("mul") == "tensor.mul_backward"
 
 --- max_pool_backward scatters the grad to each window's argmax.
-test_max_pool_backward := assert tensor.to_list((tensor.max_pool_backward(tensor.from_list([[[[1, 2], [3, 4]]]]), tensor.from_list([[[[7]]]]), 2)).input) = [[[[0, 0], [0, 7]]]]
+test_max_pool_backward := assert tensor.to_list((tensor.max_pool_backward(tensor.from_list([[[[1, 2], [3, 4]]]]), tensor.from_list([[[[7]]]]), 2)).input) == [[[[0, 0], [0, 7]]]]
 
 --- reshape_backward relabels the grad to the input's shape.
-test_reshape_backward := assert tensor.to_list((tensor.reshape_backward(tensor.zeros([2, 3]), [3, 2], tensor.from_list([[1, 2], [3, 4], [5, 6]]))).input) = [[1, 2, 3], [4, 5, 6]]
+test_reshape_backward := assert tensor.to_list((tensor.reshape_backward(tensor.zeros([2, 3]), [3, 2], tensor.from_list([[1, 2], [3, 4], [5, 6]]))).input) == [[1, 2, 3], [4, 5, 6]]
 
 --- transpose_backward transposes the grad back (self-inverse).
-test_transpose_backward := assert tensor.to_list((tensor.transpose_backward(tensor.zeros([2, 3]), 0, 1, tensor.from_list([[1, 4], [2, 5], [3, 6]]))).input) = [[1, 2, 3], [4, 5, 6]]
+test_transpose_backward := assert tensor.to_list((tensor.transpose_backward(tensor.zeros([2, 3]), 0, 1, tensor.from_list([[1, 4], [2, 5], [3, 6]]))).input) == [[1, 2, 3], [4, 5, 6]]
 
 --- concat_backward splits the grad at each input's extent.
-test_concat_backward := assert tensor.to_list((tensor.concat_backward([tensor.zeros([2, 1]), tensor.zeros([2, 1])], 0, tensor.from_list([[1], [2], [3], [4]])).xs)[1]) = [[3], [4]]
+test_concat_backward := assert tensor.to_list((tensor.concat_backward([tensor.zeros([2, 1]), tensor.zeros([2, 1])], 0, tensor.from_list([[1], [2], [3], [4]])).xs)[1]) == [[3], [4]]
 
-test_derive_reshape := assert tensor.derive("reshape") = "tensor.reshape_backward"
+test_derive_reshape := assert tensor.derive("reshape") == "tensor.reshape_backward"
 
 --- tensor.load: safetensors sidecar ingest. The fixture is one F64
 --- tensor "w" = [[1,2],[3,4]]; relative paths resolve against
 --- $TENSOR_LOAD_DIR (export it to tests/fixtures) or the cwd.
-test_load := assert tensor.to_list(tensor.load("load_fixture.safetensors", "w")) = [[1, 2], [3, 4]]
+test_load := assert tensor.to_list(tensor.load("load_fixture.safetensors", "w")) == [[1, 2], [3, 4]]
 
-test_load_shape := assert tensor.shape(tensor.load("load_fixture.safetensors")) = [2, 2]
+test_load_shape := assert tensor.shape(tensor.load("load_fixture.safetensors")) == [2, 2]

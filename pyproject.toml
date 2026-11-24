@@ -7,6 +7,7 @@ name = "handl-host-tensor"
 version = "0.1.0"
 description = "Host-side tensor functions for handl runtimes — the `tensor.*` op surface behind the `handl_host_tensor` PyO3 extension module."
 requires-python = ">=3.11"
+readme = "README.md"
 license = "MIT"
 
 [tool.maturin]
