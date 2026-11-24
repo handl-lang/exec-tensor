@@ -71,6 +71,7 @@ dependencies = [
  "hnl-tool-lex-pattern",
  "hnl-tool-parse-pratt",
  "pyo3",
+ "serde",
  "serde_json",
  "serde_yaml",
 ]

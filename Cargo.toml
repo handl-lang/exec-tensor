@@ -29,6 +29,9 @@ handl-lib-ops = { git = "https://github.com/handl-lang/kernel", branch = "main" 
 # spelling, and tensor.load's payload-as-wire path.
 handl-value = { git = "https://github.com/handl-lang/kernel", branch = "main" }
 serde_json = "1"
+# P-013/T-149: atoms.yaml → {fn, sig} op registry (`src/atoms.rs`).
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
 pyo3 = { version = "0.26", optional = true }
 
 [features]
@@ -43,7 +46,6 @@ python = ["dep:pyo3"]
 
 [dev-dependencies]
 handl-plugin-module = { git = "https://github.com/handl-lang/host", branch = "main" }
-serde_yaml = "0.9"
 # Engine round-trip test (`tests/engine_roundtrip.rs`): run a `.hnl` program
 # through the real `lex → parse → eval` pipeline so `tensor.*` host results
 # decode to `TaggedValue::Tensor` inside the engine — not just across the
