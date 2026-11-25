@@ -33,6 +33,8 @@
 pub const TENSOR_HNL: &str = include_str!("index.hnl");
 
 pub mod atoms;
+/// `ffi.rust.resolve` atom handles for external callers (P-013/T-152).
+pub mod ffi;
 pub mod kit;
 pub mod ops;
 #[cfg(feature = "python")]

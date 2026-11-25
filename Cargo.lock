@@ -194,6 +194,7 @@ version = "0.1.0"
 dependencies = [
  "handl-kit-core",
  "handl-kit-data-prelude",
+ "handl-kit-ffi",
  "handl-language",
  "handl-lib-ops",
  "handl-platform",
@@ -259,6 +260,18 @@ dependencies = [
  "handl-language",
  "serde_json",
  "serde_yaml",
+]
+
+[[package]]
+name = "handl-kit-ffi"
+version = "0.1.0"
+dependencies = [
+ "handl-kit-core",
+ "handl-pkg-vendor",
+ "handl-platform",
+ "handl-plugin-lib-handl",
+ "handl-value",
+ "serde_json",
 ]
 
 [[package]]
@@ -1888,10 +1901,6 @@ name = "handl-plugin-lib-lang-typecheck"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-kit-ffi"
-version = "0.1.0"
-
-[[patch.unused]]
 name = "handl-plugin-ffi"
 version = "0.1.0"
 
@@ -1933,10 +1942,6 @@ version = "0.1.0"
 
 [[patch.unused]]
 name = "handl-kit-eqsat"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "handl-kit-ffi"
 version = "0.1.0"
 
 [[patch.unused]]
