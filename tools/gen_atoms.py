@@ -49,7 +49,7 @@ RE_HANDLE = re.compile(r'^handle\s+"([^"]+)"\s+with\s+(\S+)')
 RE_CLAUSE = re.compile(r"^\s+(guarantee|requires|termination)\s*:\s*(.*)$")
 
 HEADER = """\
-# exec-tensor atom spec (P-013/T-149) — GENERATED, do not edit by hand.
+# lib-tensor-native atom spec (P-013/T-149) — GENERATED, do not edit by hand.
 # Source of truth: src/index.hnl (`op`/`guarantee`/`handle` decls).
 # Regenerate: python3 tools/gen_atoms.py   Drift check: --check
 # Schema matches handl-plugin-lib-handl's atoms.yaml: `name` is the

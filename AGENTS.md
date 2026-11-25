@@ -1,4 +1,4 @@
-# exec-tensor
+# lib-tensor-native
 
 `handl-host-tensor` — host-side tensor functions for handl runtimes: a
 dense n-d `f64` array (row-major) behind the `tensor.*` op surface.

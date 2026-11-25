@@ -233,9 +233,9 @@ drift-check:
 
 ```sh
 cargo run --manifest-path ../tool-codegen-aten/Cargo.toml -- \
-    --apply /path/to/exec-tensor           # rewrite the generated surfaces
+    --apply /path/to/lib-tensor-native           # rewrite the generated surfaces
 cargo run --manifest-path ../tool-codegen-aten/Cargo.toml -- \
-    --apply /path/to/exec-tensor --check   # drift gate, no writes
+    --apply /path/to/lib-tensor-native --check   # drift gate, no writes
 ```
 
 `~>` is the only `.hnl` arrow spelling: op-decl signatures in the

@@ -44,7 +44,7 @@
 //! This module is a **line-for-line port** of
 //! `handl-plugin-lib-stdlib/src/atoms.rs` (host repo, P-013/T-149),
 //! re-exported for crates that cannot depend on the stdlib plugin.
-//! exec-tensor's dep closure (`handl-platform` +
+//! lib-tensor-native's dep closure (`handl-platform` +
 //! `handl-plugin-lib-handl`) already carries everything the loader
 //! needs — [`OpRegistry`], [`sig_to_type_value`] — but the yaml
 //! machinery itself lives one crate too high. The correct upstream
