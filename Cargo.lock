@@ -270,7 +270,9 @@ dependencies = [
  "handl-pkg-vendor",
  "handl-platform",
  "handl-plugin-lib-handl",
+ "handl-plugin-module",
  "handl-value",
+ "hnl-exec",
  "serde_json",
 ]
 
@@ -515,6 +517,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "handl-plugin-lib-ip-c"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/lib-ip-c?branch=main#26808d51d33ac9157febad55906865ba5ae637b3"
+dependencies = [
+ "handl-ops",
+ "inventory",
+ "serde_json",
+]
+
+[[package]]
 name = "handl-plugin-lib-otlp-c"
 version = "0.1.0"
 dependencies = [
@@ -578,6 +590,7 @@ dependencies = [
  "handl-pkg-vendor",
  "handl-platform",
  "handl-plugin-lib-handl",
+ "handl-plugin-lib-ip-c",
  "handl-plugin-lib-otlp-c",
  "handl-plugin-lib-otlp-std",
  "handl-plugin-lib-serialize-toml-c",
@@ -1901,11 +1914,11 @@ name = "handl-plugin-lib-lang-typecheck"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-plugin-ffi"
+name = "handl-plugin-codegen-emitter-file"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-plugin-codegen-emitter-file"
+name = "handl-plugin-ffi"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -1929,7 +1942,7 @@ name = "handl-ext"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "compile-cuda"
+name = "tool-compile-cuda"
 version = "0.0.1"
 
 [[patch.unused]]
@@ -2049,11 +2062,11 @@ name = "handl-kit-server"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-kit-pkg"
+name = "handl-plugin-lib-lang-lex"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-plugin-lib-lang-lex"
+name = "handl-kit-pkg"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -2069,7 +2082,7 @@ name = "handl-kit-stdlib"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "compile-triton"
+name = "tool-compile-triton"
 version = "0.0.1"
 
 [[patch.unused]]
