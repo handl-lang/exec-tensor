@@ -412,10 +412,12 @@ name = "handl-host-tensor"
 version = "0.1.0"
 dependencies = [
  "handl-kit-core",
+ "handl-kit-ffi",
  "handl-lib-ops",
  "handl-platform",
  "handl-plugin-lib-handl",
  "handl-value",
+ "inventory",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -478,7 +480,9 @@ dependencies = [
  "handl-platform",
  "handl-plugin-ffi",
  "handl-plugin-lib-handl",
+ "handl-plugin-module",
  "handl-value",
+ "hnl-exec",
  "serde_json",
 ]
 
@@ -532,7 +536,7 @@ dependencies = [
  "handl-kit-stdlib",
  "handl-kit-test",
  "handl-language",
- "handl-lib-comb",
+ "handl-pkg-vendor",
  "handl-platform",
  "handl-plugin-ext-diag",
  "handl-plugin-ext-lint",
@@ -583,12 +587,10 @@ version = "0.1.0"
 dependencies = [
  "handl-kit-core",
  "handl-kit-data",
- "handl-lib-base64",
- "handl-lib-hex",
- "handl-lib-serialize",
  "handl-pkg-vendor",
  "handl-platform",
  "handl-plugin-lib-handl",
+ "handl-plugin-lib-ip-c",
  "handl-plugin-lib-kv-hashmap",
  "handl-plugin-lib-stdlib",
 ]
@@ -614,16 +616,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
-]
-
-[[package]]
-name = "handl-lib-base64"
-version = "0.1.0"
-source = "git+https://github.com/handl-lang/lib-base64?branch=main#b4af02639f5edd62ac27b28c11c4129e4b0976ef"
-dependencies = [
- "base64",
- "handl-ops",
- "serde_json",
 ]
 
 [[package]]
@@ -661,16 +653,6 @@ dependencies = [
  "handl-lib-ops",
  "handl-ops",
  "handl-value",
- "serde_json",
-]
-
-[[package]]
-name = "handl-lib-hex"
-version = "0.1.0"
-source = "git+https://github.com/handl-lang/lib-hex?branch=main#fd69880d553250d6b0299655d2d7cb9eed7c50f3"
-dependencies = [
- "handl-ops",
- "hex",
  "serde_json",
 ]
 
@@ -837,6 +819,7 @@ version = "0.1.0"
 dependencies = [
  "handl-ops",
  "handl-pkg-vendor",
+ "inventory",
  "serde_json",
 ]
 
@@ -859,6 +842,19 @@ dependencies = [
  "hnl-tool-lex-pattern",
  "hnl-tool-parse-pratt",
  "hnl-tool-transform",
+ "inventory",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
+name = "handl-plugin-lib-ip-c"
+version = "0.1.0"
+source = "git+https://github.com/handl-lang/lib-ip-c?branch=main#df2a27d8efbc48b90a80e6acd93f4684f36af63f"
+dependencies = [
+ "handl-ops",
+ "inventory",
  "serde_json",
 ]
 
@@ -1015,6 +1011,7 @@ dependencies = [
  "handl-pkg-vendor",
  "handl-platform",
  "handl-plugin-lib-handl",
+ "handl-plugin-lib-ip-c",
  "handl-plugin-lib-otlp-c",
  "handl-plugin-lib-otlp-std",
  "handl-plugin-lib-serialize-toml-c",
@@ -1435,6 +1432,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "inventory"
+version = "0.3.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6928282826c822ad91bf1c9a1cb90a30ba1c26770749929b4656cd6be829cd7c"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "iri-string"
 version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1716,6 +1722,12 @@ dependencies = [
  "rustls-pki-types",
  "untrusted",
 ]
+
+[[package]]
+name = "rustversion"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "ryu"
@@ -2348,7 +2360,7 @@ name = "handl-plugin-codegen-backend-webidl"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "compile-cuda"
+name = "tool-compile-cuda"
 version = "0.0.1"
 
 [[patch.unused]]
@@ -2448,7 +2460,7 @@ name = "handl-kit-eqsat"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "compile-triton"
+name = "tool-compile-triton"
 version = "0.0.1"
 
 [[patch.unused]]
