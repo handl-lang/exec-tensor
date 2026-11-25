@@ -205,7 +205,7 @@ src/ops/derive.rs      derive + DERIV_PAIRS
 src/tensor.test.hnl    .hnl spec tests (host-dependent under `hnl test`)
 pkg.hnl                { modules: ["tensor"] }
 .handl.toml            self-declared dep names for repo-local resolution
-ci.sh                  bupha entry: hnl gate + cargo test
+workflows/gate.yaml                  bupha entry (handl-gates): hnl gate + cargo test
 ```
 
 The `src/ops/` file map mirrors `lib-tensor`'s spec files 1:1
@@ -239,7 +239,7 @@ comment lines keep ATen's own `->`.
 ## Gate
 
 ```bash
-HNL=../host-cli/target/debug/hnl ./ci.sh   # hnl typecheck/lint/test + cargo test
+cargo xtask gate  # hnl typecheck/lint/test + cargo test
 cargo test                            # the Rust suite (codec + ops + dispatch)
 ```
 
