@@ -1,4 +1,4 @@
-# bupha.toml — committed CI manifest for handl-lang/exec-tensor.
+# bupha.toml — committed CI manifest for handl-lang/lib-tensor-native.
 #
 # The gate is the peregrin campaign in workflows/gate.yaml — ci.sh is
 # retired fleet-wide, so the runner executes the campaign in the pushed
@@ -7,8 +7,8 @@
 # watcher (~/.config/bupha/bupha.toml) or run:
 # bupha watch --config bupha.toml
 [[repos]]
-name = "handl-lang/exec-tensor"
-dir = "~/GitHub/handl-lang/exec-tensor"
+name = "handl-lang/lib-tensor-native"
+dir = "~/GitHub/handl-lang/lib-tensor-native"
 branch = "refs/heads/main"
   [repos.runner]
   kind = "script"
