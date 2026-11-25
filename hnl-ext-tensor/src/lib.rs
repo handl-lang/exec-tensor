@@ -74,7 +74,7 @@ fn tensor_run_command(args: &[String], cwd: &Path) -> ExtResponse {
             "--kit" => {
                 i += 1;
                 let Some(v) = args.get(i) else {
-                    return ExtResponse::error(2, "tensor-run: --kit requires a directory\n".into());
+                    return ExtResponse::error(2, "tensor-run: --kit requires a directory\n");
                 };
                 kit_dir = Some(resolve(cwd, v));
             }
@@ -88,7 +88,7 @@ fn tensor_run_command(args: &[String], cwd: &Path) -> ExtResponse {
                 if file.is_some() {
                     return ExtResponse::error(
                         2,
-                        "tensor-run: expected exactly one <file.hnl>\n".into(),
+                        "tensor-run: expected exactly one <file.hnl>\n",
                     );
                 }
                 file = Some(resolve(cwd, other));
@@ -99,7 +99,7 @@ fn tensor_run_command(args: &[String], cwd: &Path) -> ExtResponse {
     let Some(file) = file else {
         return ExtResponse::error(
             2,
-            "usage: tensor-run [--kit <dir>] <file.hnl>\n".into(),
+            "usage: tensor-run [--kit <dir>] <file.hnl>\n",
         );
     };
 
