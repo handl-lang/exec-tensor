@@ -2,6 +2,7 @@
 name = "hnl-ext-tensor"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "`tensor.*` host ops for `hnl` — kit registration plus a self-contained `tensor-run` dynamic extension (ADR-0149)."
 license = "MIT"
 repository = "https://github.com/handl-lang/exec-tensor"
