@@ -10,9 +10,17 @@ decl forms into the atom IDL row:
     - name  <- the quoted op name        (`tensor.abs`)
     - sig   <- the `op` decl's signature (`Tensor ~> Tensor`)
     - impl  <- the `handle` decl's `with` binding (`rust_abs`)
-    - total <- `guarantee: True` present (the atoms.yaml `total` field
-      replaces the dead guarantee/requires/termination decl clauses,
-      matching the handl-plugin-lib-stdlib atoms spec semantics)
+    - total <- a `guarantee: True` clause is present
+    - requires / termination / guarantee <- every indented decl clause
+      verbatim (T-151 caps-as-data): repeated clause keys accumulate,
+      nothing is dropped. `guarantee: True` itself stays the `total`
+      flag and is not duplicated into `guarantee:`.
+
+`caps:` is deliberately NOT generated: index.hnl decls carry no
+capability-requirement syntax today, so the field is hand-authored spec
+data (consumed by `pkg.hnl` dep-scope `caps:` filtering in
+`handl-plugin-lib-handl`). If a `cap`-level clause syntax lands, extend
+`parse_index` to emit it.
 
 `atoms.yaml` sits at the package root next to `pkg.hnl` — the same
 vendoring convention `handl-pkg-vendor` applies to `pkg.hnl`.
@@ -44,10 +52,12 @@ HEADER = """\
 # exec-tensor atom spec (P-013/T-149) — GENERATED, do not edit by hand.
 # Source of truth: src/index.hnl (`op`/`guarantee`/`handle` decls).
 # Regenerate: python3 tools/gen_atoms.py   Drift check: --check
-# Schema matches handl-plugin-lib-stdlib's atoms.yaml: `name` is the
+# Schema matches handl-plugin-lib-handl's atoms.yaml: `name` is the
 # dispatch key, `sig` the handl signature (~> canonical), `impl` the key
 # into the Rust impl table (`src/ops/mod.rs` `tensor_impls()`), `total`
-# the guarantee-clause replacement.
+# the `guarantee: True` marker, and `requires`/`termination`/`guarantee`
+# the verbatim decl clauses (T-151). `caps` is hand-authored, not
+# generated — index.hnl has no capability-requirement syntax.
 module: tensor
 atoms:
 """
@@ -58,7 +68,9 @@ def parse_index(text: str) -> list[dict]:
     caps: list[str] = []
     ops: dict[str, str] = {}
     op_order: list[str] = []
-    clauses: dict[str, dict[str, str]] = {}
+    # name -> clause key -> [texts]; every clause line is kept (T-151 —
+    # the previous last-wins dict silently dropped repeats).
+    clauses: dict[str, dict[str, list[str]]] = {}
     handles: dict[str, str] = {}
 
     lines = text.splitlines()
@@ -72,13 +84,13 @@ def parse_index(text: str) -> list[dict]:
             ops[name] = sig
             op_order.append(name)
             # Slurp the indented clause block (guarantee:/requires:/...).
-            clause: dict[str, str] = {}
+            clause: dict[str, list[str]] = {}
             j = i + 1
             while j < len(lines):
                 cm = RE_CLAUSE.match(lines[j])
                 if not cm:
                     break
-                clause[cm.group(1)] = cm.group(2).strip()
+                clause.setdefault(cm.group(1), []).append(cm.group(2).strip())
                 j += 1
             clauses[name] = clause
             i = j - 1
@@ -103,12 +115,17 @@ def parse_index(text: str) -> list[dict]:
     atoms = []
     for name in op_order:
         clause = clauses.get(name, {})
+        guarantees = clause.get("guarantee", [])
         atoms.append(
             {
                 "name": name,
                 "sig": ops[name],
                 "impl": handles[name],
-                "total": clause.get("guarantee") == "True",
+                "total": "True" in guarantees,
+                # `guarantee: True` stays the `total` flag — not duplicated.
+                "guarantee": [g for g in guarantees if g != "True"],
+                "requires": clause.get("requires", []),
+                "termination": clause.get("termination", []),
             }
         )
     return atoms
@@ -122,6 +139,13 @@ def render(atoms: list[dict]) -> str:
         out.append(f'    impl: {a["impl"]}\n')
         if a["total"]:
             out.append("    total: true\n")
+        # T-151: verbatim decl clauses, emitted only when present.
+        for key in ("requires", "termination", "guarantee"):
+            vals = a.get(key) or []
+            if vals:
+                out.append(f"    {key}:\n")
+                for v in vals:
+                    out.append(f"      - {json.dumps(v)}\n")
     return "".join(out)
 
 

@@ -30,8 +30,14 @@
 //! - `impl` — key into the module's impl table (`impl:` in yaml —
 //!   `impl` is a Rust keyword, hence the rename): a
 //!   `(&'static str, Arc<dyn Function + Send + Sync>)` row.
-//! - `total` — metadata replacing the dead `guarantee:`/`requires:`/
-//!   `termination:` decl clauses; parsed and carried, not yet consumed.
+//! - `total` — `guarantee: True` decl clause marker.
+//! - `caps` — capability names the atom *requires* of the consuming
+//!   runtime (T-151 caps-as-data): a `pkg.hnl` dep scope's `caps:`
+//!   allowlist filters atoms whose requirements it does not cover.
+//!   Absent/empty = no requirements.
+//! - `requires` / `termination` / `guarantee` — the remaining index.hnl
+//!   decl-clause texts carried verbatim (`guarantee:` excludes `True`,
+//!   which stays `total`). Carried as data, not yet consumed.
 //!
 //! ## Provenance — local port, upstream move pending
 //!
@@ -48,7 +54,7 @@
 //! Follow-up: move `atoms.rs` to `handl-plugin-lib-handl`, re-export it
 //! from `handl-plugin-lib-stdlib`, and delete this port.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use handl_platform::Function;
@@ -91,9 +97,29 @@ pub struct AtomDecl {
     /// keyword, hence the rename).
     #[serde(rename = "impl")]
     pub impl_key: String,
-    /// Totality metadata (replaces the dead `guarantee:` clause).
+    /// `guarantee: True` decl clause.
     #[serde(default)]
     pub total: bool,
+    /// Capability names this atom requires of the consuming runtime
+    /// (T-151 caps-as-data). See the module docs for consumers.
+    #[serde(default)]
+    pub caps: Vec<String>,
+    /// `requires:` decl-clause texts, carried verbatim.
+    #[serde(default)]
+    pub requires: Vec<String>,
+    /// `termination:` decl-clause texts, carried verbatim.
+    #[serde(default)]
+    pub termination: Vec<String>,
+    /// Non-`True` `guarantee:` decl-clause texts (`True` is `total`).
+    #[serde(default)]
+    pub guarantee: Vec<String>,
+}
+
+/// Union of every atom's `caps` requirements (T-151) — kept in parity
+/// with the upstream `handl-plugin-lib-handl` port.
+#[allow(dead_code)]
+pub fn atom_capabilities(atoms: &[AtomDecl]) -> BTreeSet<String> {
+    atoms.iter().flat_map(|a| a.caps.iter().cloned()).collect()
 }
 
 /// Parse an `atoms.yaml` document into `(module_name, atoms)` pairs.
@@ -237,6 +263,10 @@ atoms:
             sig: Some("not a ~> sig !!!".into()),
             impl_key: "rust_tensor_zeros".into(),
             total: false,
+            caps: vec![],
+            requires: vec![],
+            termination: vec![],
+            guarantee: vec![],
         }];
         assert!(registry_from_atoms(&bad, &impls()).is_err());
     }

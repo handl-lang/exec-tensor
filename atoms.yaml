@@ -1,10 +1,12 @@
 # exec-tensor atom spec (P-013/T-149) — GENERATED, do not edit by hand.
 # Source of truth: src/index.hnl (`op`/`guarantee`/`handle` decls).
 # Regenerate: python3 tools/gen_atoms.py   Drift check: --check
-# Schema matches handl-plugin-lib-stdlib's atoms.yaml: `name` is the
+# Schema matches handl-plugin-lib-handl's atoms.yaml: `name` is the
 # dispatch key, `sig` the handl signature (~> canonical), `impl` the key
 # into the Rust impl table (`src/ops/mod.rs` `tensor_impls()`), `total`
-# the guarantee-clause replacement.
+# the `guarantee: True` marker, and `requires`/`termination`/`guarantee`
+# the verbatim decl clauses (T-151). `caps` is hand-authored, not
+# generated — index.hnl has no capability-requirement syntax.
 module: tensor
 atoms:
   - name: tensor.zeros
