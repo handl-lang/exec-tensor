@@ -42,3 +42,40 @@ pub fn register() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| handl_kit_core::register_modules(MODULES));
 }
+
+// ---------------------------------------------------------------------------
+// Atom-provider self-registration (P-013 phase-2a, proposal-0012)
+// ---------------------------------------------------------------------------
+//
+// This crate submits one `AtomProvider` so dep binding
+// (`handl_plugin_lib_handl::dep_atom_modules`) can pair a dep's
+// `atoms.yaml` with `tensor_impls()` — no hand table row, no host-side
+// `register()` call. The inventory only sees submissions from crates
+// that are *linked*: any consumer must add `handl-host-tensor` as a
+// Cargo dependency AND reference one of its symbols, or the linker
+// drops this object and the provider is invisible.
+//
+// [`atom_provider_link_anchor`] is that reference — placed in this file
+// next to `submit!` so the archive member carrying the registration is
+// the one referenced. `handl-kit-prelude`'s `register()` calls it;
+// hosts composing a kit without prelude must call it themselves to get
+// dep-bound `tensor` atoms.
+
+/// The `atoms.yaml` spec this crate's impl table serves.
+pub const ATOMS_YAML: &str = include_str!("../atoms.yaml");
+
+inventory::submit! {
+    handl_plugin_lib_handl::atoms::AtomProvider {
+        modules: &[MODULE_NAME],
+        atoms_yaml: ATOMS_YAML,
+        host_impls: Some(crate::ops::tensor_impls),
+        kernel_impls: None,
+    }
+}
+
+/// Link anchor for the `AtomProvider` submission above — see the
+/// comment block. Referencing this fn pulls the object containing
+/// `inventory::submit!` (and, through its `tensor_impls` reference,
+/// the impl table) into the final artifact.
+#[doc(hidden)]
+pub fn atom_provider_link_anchor() {}

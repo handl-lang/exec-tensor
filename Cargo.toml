@@ -32,11 +32,21 @@ serde_json = "1"
 # P-013/T-149: atoms.yaml → {fn, sig} op registry (`src/atoms.rs`).
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
+# P-013 phase-2a (proposal-0012): `AtomProvider` self-registration —
+# `src/kit.rs` submits the provider; dep binding collects it.
+inventory = "0.3"
 pyo3 = { version = "0.26", optional = true }
 # Kit registration (`src/kit.rs`): `tensor` enters the shared
 # `handl-kit-core` module table so kit-assembling hosts (kit-prelude's
 # `hnl run`, `hnl-ext-tensor`) get the ops without inline wiring.
 handl-kit-core = { git = "https://github.com/handl-lang/host", branch = "main" }
+# P-013 T-152: `ffi.rust.resolve` atom handles — `src/ffi.rs` wraps
+# `handl_kit_ffi::AtomHandle` so the PyO3 binding's `resolve`/
+# `call_handle` surface resolves `tensor.*` (and any kit-table atom)
+# through the same module table the `.hnl` op consults. Built without
+# the `ffi` feature: resolution is feature-independent (handl atoms,
+# not C symbols) and pulls no cranelift/libloading.
+handl-kit-ffi = { git = "https://github.com/handl-lang/host", branch = "main", default-features = false }
 
 [features]
 # Python binding: `cargo build --features python` emits
@@ -100,6 +110,10 @@ hnl-tool-typecheck = { path = "../tool-typecheck" }
 handl-calculus = { path = "../kernel/crates/handl-calculus" }
 handl-language = { path = "../kernel/crates/handl-language" }
 handl-value = { path = "../kernel/crates/handl-value" }
+# P-013 phase-2a: `handl-ops` carries `KernelAtomProvider` (the kernel
+# atom-provider inventory `plugin-lib-handl::dep_atoms` collects);
+# without this row the git copy predates it and the dep graph splits.
+handl-ops = { path = "../kernel/crates/handl-ops" }
 
 [patch."https://github.com/handl-lang/host"]
 handl-kit-data = { path = "../host/crates/handl-kit-data" }
@@ -109,6 +123,7 @@ handl-plugin-ext-diag = { path = "../host/crates/plugin-ext-diag" }
 handl-plugin-lib-handl = { path = "../host/crates/plugin-lib-handl" }
 handl-plugin-module = { path = "../host/crates/plugin-module" }
 handl-kit-core = { path = "../host/crates/handl-kit-core" }
+handl-kit-ffi = { path = "../host/crates/handl-kit-ffi" }
 handl-runtime = { path = "../host/crates/handl-runtime" }
 
 

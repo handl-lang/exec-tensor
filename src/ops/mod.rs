@@ -335,7 +335,7 @@ const ATOMS_YAML: &str = include_str!("../../atoms.yaml");
 // `#[rustfmt::skip]`: the ATEN-PORT-GEN marker region must stay
 // byte-identical to tool-codegen-aten's emit.
 #[rustfmt::skip]
-fn tensor_impls() -> Vec<crate::atoms::AtomImpl> {
+pub(crate) fn tensor_impls() -> Vec<crate::atoms::AtomImpl> {
     vec![
         ("rust_tensor_zeros", Arc::new(Zeros)),
         ("rust_tensor_ones", Arc::new(Ones)),

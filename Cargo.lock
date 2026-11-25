@@ -206,6 +206,7 @@ dependencies = [
  "hnl-exec-tree-walk",
  "hnl-tool-lex-pattern",
  "hnl-tool-parse-pratt",
+ "inventory",
  "pyo3",
  "serde",
  "serde_json",
@@ -384,8 +385,8 @@ dependencies = [
 [[package]]
 name = "handl-ops"
 version = "0.1.0"
-source = "git+https://github.com/handl-lang/kernel?branch=main#e2e8e9342b5024aeffbbd7c57eefad68a7521618"
 dependencies = [
+ "inventory",
  "serde_json",
  "thiserror",
 ]
@@ -471,6 +472,7 @@ version = "0.1.0"
 dependencies = [
  "handl-ops",
  "handl-pkg-vendor",
+ "inventory",
  "serde_json",
 ]
 
@@ -493,7 +495,10 @@ dependencies = [
  "hnl-tool-lex-pattern",
  "hnl-tool-parse-pratt",
  "hnl-tool-transform",
+ "inventory",
+ "serde",
  "serde_json",
+ "serde_yaml",
 ]
 
 [[package]]
@@ -926,6 +931,15 @@ name = "indoc"
 version = "2.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a37b2691796cffeb8a8cd305ac66e65841559f147f4e63231d0eafa4db5384d1"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
+name = "inventory"
+version = "0.3.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6928282826c822ad91bf1c9a1cb90a30ba1c26770749929b4656cd6be829cd7c"
 dependencies = [
  "rustversion",
 ]
