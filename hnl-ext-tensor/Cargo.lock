@@ -590,7 +590,7 @@ dependencies = [
  "handl-pkg-vendor",
  "handl-platform",
  "handl-plugin-lib-handl",
- "handl-plugin-lib-ip-c",
+ "handl-plugin-lib-ip-native",
  "handl-plugin-lib-kv-hashmap",
  "handl-plugin-lib-stdlib",
 ]
@@ -719,8 +719,8 @@ dependencies = [
 [[package]]
 name = "handl-ops"
 version = "0.1.0"
-source = "git+https://github.com/handl-lang/kernel?branch=main#eb1b6f374f99b16f6926dc4cc14c24e7227a5080"
 dependencies = [
+ "inventory",
  "serde_json",
  "thiserror",
 ]
@@ -827,6 +827,7 @@ dependencies = [
 name = "handl-plugin-lib-handl"
 version = "0.1.0"
 dependencies = [
+ "handl-ext",
  "handl-language",
  "handl-ops",
  "handl-pkg-vendor",
@@ -849,9 +850,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "handl-plugin-lib-ip-c"
+name = "handl-plugin-lib-ip-native"
 version = "0.1.0"
-source = "git+https://github.com/handl-lang/lib-ip-c?branch=main#df2a27d8efbc48b90a80e6acd93f4684f36af63f"
 dependencies = [
  "handl-ops",
  "inventory",
@@ -1011,7 +1011,7 @@ dependencies = [
  "handl-pkg-vendor",
  "handl-platform",
  "handl-plugin-lib-handl",
- "handl-plugin-lib-ip-c",
+ "handl-plugin-lib-ip-native",
  "handl-plugin-lib-otlp-c",
  "handl-plugin-lib-otlp-std",
  "handl-plugin-lib-serialize-toml-c",
@@ -1184,6 +1184,8 @@ dependencies = [
  "handl-host-tensor",
  "handl-kit-pkg",
  "handl-kit-prelude",
+ "handl-platform",
+ "handl-plugin-lib-handl",
  "handl-value",
  "serde_json",
 ]
@@ -2348,11 +2350,19 @@ name = "handl-plugin-compile-sexp"
 version = "0.1.0"
 
 [[patch.unused]]
+name = "handl-lib-hex"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "handl-plugin-codegen-emitter-file"
 version = "0.1.0"
 
 [[patch.unused]]
 name = "handl-plugin-compile-llvm"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-lib-base64"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -2452,6 +2462,38 @@ name = "hnl-ext-mlopt"
 version = "0.1.0"
 
 [[patch.unused]]
+name = "handl"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-bench"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-ext-tests"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-host-tooling"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-plugin-codemod"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-plugin-ext-codemod"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-run"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-platform-tests"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "handl-plugin-compile-js"
 version = "0.1.0"
 
@@ -2465,6 +2507,10 @@ version = "0.0.1"
 
 [[patch.unused]]
 name = "hnl-tool-test"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-plugin-codegen-ffi"
 version = "0.1.0"
 
 [[patch.unused]]

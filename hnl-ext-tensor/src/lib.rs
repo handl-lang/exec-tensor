@@ -21,6 +21,25 @@
 //!    the same egress `hnl run` performs, minus arrow-term pretty
 //!    printing (raw JSON for non-string values).
 //!
+//! 3. **cdylib atom provider** (P-013 phase-2c, proposal-0012) — the
+//!    manifest carries `atoms_yaml` (the repo's generated `atoms.yaml`),
+//!    marking this `.so` as an atom provider for `tensor.*`. When a
+//!    project dep on `lib-tensor-native` binds its `atoms.yaml` and no
+//!    statically linked provider claims `tensor`,
+//!    `handl-plugin-lib-handl`'s dep binding discovers this library
+//!    through the ADR-0149 search path and marshals each atom call over
+//!    `handl_ext_dispatch` (`cmd` = `"tensor.<op>"`, `args[0]` = JSON
+//!    args array). [`dispatch`] routes those calls through
+//!    [`handl_host_tensor::ffi`] — the same `AtomHandle` path
+//!    `ffi.rust.resolve` uses — so args/results keep the `__tensor__`
+//!    wire codec and get a fresh `EvalContext` (no host recursion — the
+//!    phase-2c cdylib limit).
+//!
+//!    Statically linked providers (the `inventory` `AtomProvider` in
+//!    `handl-host-tensor`'s `kit.rs`, anchored by `handl-kit-prelude`)
+//!    always win over this cdylib — the dynamic path exists for hosts
+//!    that cannot link the rlib.
+//!
 //! `tensor` must be admitted by the prelude manifest's `base_modules`
 //! (it is, in `handl-kit-data-prelude`'s `prelude.yaml`) — the kit
 //! registry filter only materializes listed modules.
@@ -39,18 +58,48 @@ handl_ext::export!(
             "tensor-run",
             "tensor-run [--kit <dir>] <file.hnl> — run a .hnl program with the tensor.* host surface",
         )
-        .command("tensor-ops", "tensor-ops — list the registered tensor.* host ops"),
+        .command("tensor-ops", "tensor-ops — list the registered tensor.* host ops")
+        // Atom-provider claim surface (P-013 phase-2c): the generated
+        // spec doubles as the manifest's `atoms_yaml` — hosts parse it
+        // for the `tensor` module claim; the bound spec still comes from
+        // the consuming dep's own `atoms.yaml`.
+        .atoms_yaml(include_str!("../../atoms.yaml")),
     dispatch
 );
 
-/// ABI dispatch: `tensor-run` executes a file, `tensor-ops` lists ops.
+/// ABI dispatch: `tensor.*` atom calls, `tensor-run` executes a file,
+/// `tensor-ops` lists ops.
 fn dispatch(cmd: &str, req: &ExtRequest) -> ExtResponse {
-    // Seat the `tensor` module before any kit assembly reads the table.
+    // Seat the `tensor` module before any kit assembly reads the table —
+    // also what `ffi::resolve` consults for atom calls.
     handl_host_tensor::kit::register();
+    // Atom names are dispatched verbatim and never appear in `commands`;
+    // every `tensor.<op>` wire lands here (P-013 phase-2c).
+    if cmd.starts_with("tensor.") {
+        return tensor_atom(cmd, req);
+    }
     match cmd {
         "tensor-run" => tensor_run_command(&req.args, Path::new(&req.cwd)),
         "tensor-ops" => tensor_ops_command(),
         other => ExtResponse::error(2, format!("tensor: unknown command `{other}`\n")),
+    }
+}
+
+/// Serve one `tensor.*` atom call: `args[0]` is the JSON args array;
+/// the result is the op's `serde_json::Value` reply (`__tensor__` wire
+/// records included). Resolution goes through the kit module table via
+/// [`handl_host_tensor::ffi`] — the same handle path `ffi.rust.resolve`
+/// uses — with a fresh `EvalContext` per call.
+fn tensor_atom(cmd: &str, req: &ExtRequest) -> ExtResponse {
+    let args = match handl_ext::atom_call_args(req) {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    let result = handl_host_tensor::ffi::resolve(cmd)
+        .and_then(|handle| handl_host_tensor::ffi::call(&handle, &args));
+    match result {
+        Ok(value) => handl_ext::atom_result(&value),
+        Err(e) => handl_ext::atom_failure(format!("tensor: {cmd}: {e}")),
     }
 }
 
@@ -176,5 +225,34 @@ mod tests {
         assert_eq!(res.code, 0);
         assert!(res.stdout.contains("tensor.from_list"));
         assert!(res.stdout.contains("tensor.matmul"));
+    }
+
+    /// Phase-2c atom wire: `tensor.add` arrives as `cmd` with `args[0]`
+    /// a JSON array of `__tensor__` records; the reply is the op's JSON
+    /// result. Exercises the same path `CdylibAtomFn` drives.
+    #[test]
+    fn tensor_atom_dispatch_roundtrips() {
+        use serde_json::json;
+        let tensor = |data: &[f64]| {
+            json!({"__tensor__": {"shape": [data.len() as i64], "data": data, "dtype": "f64"}})
+        };
+        let payload = serde_json::to_string(&json!([tensor(&[1.0, 2.0]), tensor(&[10.0, 20.0])]))
+            .unwrap();
+        let req = ExtRequest {
+            args: vec![payload],
+            ..ExtRequest::default()
+        };
+        let res = dispatch("tensor.add", &req);
+        assert_eq!(res.code, 0, "stderr: {}", res.stderr);
+        let out: Value = serde_json::from_str(&res.stdout).unwrap();
+        assert_eq!(out["__tensor__"]["data"], json!([11.0, 22.0]));
+
+        // Unknown atoms fail loudly through the same wire.
+        let req = ExtRequest {
+            args: vec!["[]".to_string()],
+            ..ExtRequest::default()
+        };
+        let res = dispatch("tensor.no_such_op", &req);
+        assert_ne!(res.code, 0);
     }
 }
