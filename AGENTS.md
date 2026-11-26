@@ -16,6 +16,7 @@ Runtimes compose this component to give `.hnl` code tensor ops.
 | `tools/` | `gen_atoms.py`, `dump_host_surface.py`, `emit_tensor_language.py` |
 | `pkg.hnl` | package manifest (`modules: ["tensor"]`) |
 | `pyproject.toml` | `handl_host_tensor` PyO3 extension |
+| `hnl-ext-tensor/` | nested crate — `libhnl_ext_tensor` cdylib: `tensor-run`/`tensor-ops` commands + P-013 phase-2c atom provider (`atoms_yaml` manifest; `tensor.*` dispatch over `handl_ext_dispatch`) |
 | `scripts/hnl-gate.sh` | `.hnl`-source gate (typecheck + lint + test via `hnl`) |
 | `tests/` | Rust + `.hnl` engine tests |
 
